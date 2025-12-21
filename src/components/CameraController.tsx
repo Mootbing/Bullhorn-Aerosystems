@@ -6,11 +6,11 @@ import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { useAirspaceStore } from '@/store/gameStore';
 
-const MIN_CAMERA_DISTANCE = 1.05;
+const MIN_CAMERA_DISTANCE = 1.12;
 const DEFAULT_CAMERA_DISTANCE = 2.5;
 const CITY_ZOOM_DISTANCE = 1.15; // Zoomed in on a city
-const FOLLOW_DISTANCE = 0.08; // How far behind the aircraft to position camera
-const FOLLOW_HEIGHT = 0.04; // How high above the aircraft
+const FOLLOW_DISTANCE = 0.04; // How far behind the aircraft to position camera
+const FOLLOW_HEIGHT = 0.02; // How high above the aircraft
 
 // Default to New York City
 const DEFAULT_LOCATION = { lat: 40.7128, lon: -74.006 };
@@ -262,10 +262,13 @@ export function CameraController() {
         selectedAircraft.position.altitude
       );
       
+      // Follow the aircraft using the user's current camera offset
+      // This allows the user to orbit around the plane while following
       const targetPos = aircraftPos.clone().add(currentCameraOffset.current);
-      camera.position.lerp(targetPos, delta * 3);
+      camera.position.lerp(targetPos, delta * 2);
       
-      currentTarget.current.lerp(aircraftPos, delta * 5);
+      // Keep looking at the aircraft
+      currentTarget.current.lerp(aircraftPos, delta * 3);
       controlsRef.current.target.copy(currentTarget.current);
     } else {
       const distFromCenter = camera.position.length();
