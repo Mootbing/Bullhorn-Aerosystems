@@ -217,13 +217,23 @@ export function Dashboard() {
 
   return (
     <div className="absolute inset-0 pointer-events-none font-mono">
-      <div className="absolute top-0 left-0 right-0 p-4 border-b border-[#1a1a1a]">
+      <div className="absolute top-0 left-0 right-0 p-4 border-b border-[#1a1a1a] bg-black/50 backdrop-blur-sm">
         <div className="flex items-center justify-between">
           <div className="pointer-events-auto">
             <span className="text-[#666] text-[10px] tracking-[0.2em]">SYSTEM</span>
             <h1 className="text-sm font-medium text-white">
               AIRSPACE<span className="text-[#333]">//</span><span className="text-[#666]">v0.1.0</span>
             </h1>
+          </div>
+          <div className="pointer-events-auto">
+            <div className="flex items-center gap-3 px-3 py-1.5 border border-[#1a1a1a] bg-black/50 backdrop-blur-sm">
+              <div className={'w-1.5 h-1.5 ' + (isPolling ? 'bg-[#00ff88]' : 'bg-[#ff4444]')} />
+              <span className="text-[10px] tracking-[0.15em] text-[#666]">
+                {isPolling ? 'UPLINK_ACTIVE' : 'UPLINK_PAUSED'}
+              </span>
+              <span className="text-[10px] text-[#00ff88]">{aircraft.length}</span>
+              <span className="text-[10px] tracking-[0.15em] text-[#00ff88]">ONLINE</span>
+            </div>
           </div>
         </div>
       </div>

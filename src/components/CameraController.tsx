@@ -6,9 +6,9 @@ import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { useAirspaceStore } from '@/store/gameStore';
 
-const MIN_CAMERA_DISTANCE = 1.05; // Minimum distance from globe center when not tracking
+const MIN_CAMERA_DISTANCE = 1.05;
+const DEFAULT_CAMERA_DISTANCE = 2.5;
 
-// Convert lat/lon to 3D position on globe
 function latLonToVector3(lat: number, lon: number, alt: number = 0): THREE.Vector3 {
   const r = 1 + alt * 0.0000005;
   const phi = (90 - lat) * (Math.PI / 180);
@@ -27,7 +27,6 @@ export function CameraController() {
   const selectedId = useAirspaceStore((state) => state.gameState.selectedAircraft);
   const aircraft = useAirspaceStore((state) => state.aircraft);
   
-  // Track camera animation state
   const isAnimating = useRef(false);
   const animationProgress = useRef(0);
   const startPosition = useRef(new THREE.Vector3());
@@ -35,35 +34,31 @@ export function CameraController() {
   const targetCameraPos = useRef(new THREE.Vector3());
   const targetLookAt = useRef(new THREE.Vector3());
   
-  // Current smoothed values for tracking
   const currentTarget = useRef(new THREE.Vector3(0, 0, 0));
   const currentCameraOffset = useRef(new THREE.Vector3());
   
   const prevSelectedId = useRef<string | null>(null);
+  const isReturningToEarth = useRef(false);
   
-  // When selection changes, start animation
   useEffect(() => {
     if (selectedId && selectedId !== prevSelectedId.current) {
       const selectedAircraft = aircraft.find(a => a.id === selectedId);
       if (selectedAircraft && controlsRef.current) {
-        // Start animation
         isAnimating.current = true;
+        isReturningToEarth.current = false;
         animationProgress.current = 0;
         
-        // Store starting positions
         startPosition.current.copy(camera.position);
         startTarget.current.copy(controlsRef.current.target);
         
-        // Calculate target position
         const aircraftPos = latLonToVector3(
           selectedAircraft.position.latitude,
           selectedAircraft.position.longitude,
           selectedAircraft.position.altitude
         );
         
-        // Position camera at a nice viewing angle
         const dirFromCenter = aircraftPos.clone().normalize();
-        const cameraDistance = 0.3; // Distance from aircraft
+        const cameraDistance = 0.3;
         const cameraPos = aircraftPos.clone().add(dirFromCenter.multiplyScalar(cameraDistance));
         
         targetCameraPos.current.copy(cameraPos);
@@ -71,9 +66,19 @@ export function CameraController() {
       }
     }
     
-    if (!selectedId && prevSelectedId.current) {
-      // Deselected - smoothly return to free mode
-      isAnimating.current = false;
+    if (!selectedId && prevSelectedId.current && controlsRef.current) {
+      // Deselected - animate back to earth view
+      isAnimating.current = true;
+      isReturningToEarth.current = true;
+      animationProgress.current = 0;
+      
+      startPosition.current.copy(camera.position);
+      startTarget.current.copy(controlsRef.current.target);
+      
+      // Target: look at earth center from current direction but at default distance
+      const currentDir = camera.position.clone().normalize();
+      targetCameraPos.current.copy(currentDir.multiplyScalar(DEFAULT_CAMERA_DISTANCE));
+      targetLookAt.current.set(0, 0, 0);
     }
     
     prevSelectedId.current = selectedId;
@@ -85,7 +90,6 @@ export function CameraController() {
     const selectedAircraft = selectedId ? aircraft.find(a => a.id === selectedId) : null;
     
     if (isAnimating.current) {
-      // Animate to target
       animationProgress.current += delta * 1.5;
       const t = Math.min(animationProgress.current, 1);
       const eased = 1 - Math.pow(1 - t, 3);
@@ -96,7 +100,7 @@ export function CameraController() {
       
       if (t >= 1) {
         isAnimating.current = false;
-        if (selectedAircraft) {
+        if (selectedAircraft && !isReturningToEarth.current) {
           const aircraftPos = latLonToVector3(
             selectedAircraft.position.latitude,
             selectedAircraft.position.longitude,
@@ -104,9 +108,9 @@ export function CameraController() {
           );
           currentCameraOffset.current.copy(camera.position).sub(aircraftPos);
         }
+        isReturningToEarth.current = false;
       }
     } else if (selectedAircraft) {
-      // Tracking mode
       const aircraftPos = latLonToVector3(
         selectedAircraft.position.latitude,
         selectedAircraft.position.longitude,
@@ -119,7 +123,6 @@ export function CameraController() {
       currentTarget.current.lerp(aircraftPos, delta * 5);
       controlsRef.current.target.copy(currentTarget.current);
     } else {
-      // No aircraft selected - enforce minimum distance from globe center
       const distFromCenter = camera.position.length();
       if (distFromCenter < MIN_CAMERA_DISTANCE) {
         camera.position.normalize().multiplyScalar(MIN_CAMERA_DISTANCE);
