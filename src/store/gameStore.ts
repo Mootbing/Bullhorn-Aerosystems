@@ -87,7 +87,7 @@ interface Store {
 
 export type { Aircraft, Position, TrackWaypoint, FlightTrack, ViewportBounds };
 
-export const useAirspaceStore = create<Store>((set, get) => ({
+export const useRadarStore = create<Store>((set, get) => ({
   aircraft: [],
   setAircraft: (aircraft) => set({ aircraft }),
   gameState: {

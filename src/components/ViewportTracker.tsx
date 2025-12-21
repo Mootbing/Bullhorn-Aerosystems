@@ -3,7 +3,7 @@
 import { useRef, useEffect } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { useAirspaceStore } from '@/store/gameStore';
+import { useRadarStore } from '@/store/gameStore';
 
 // Convert 3D position on globe to lat/lon
 function vector3ToLatLon(position: THREE.Vector3): { lat: number; lon: number } | null {
@@ -19,7 +19,7 @@ function vector3ToLatLon(position: THREE.Vector3): { lat: number; lon: number } 
 
 export function ViewportTracker() {
   const { camera, size } = useThree();
-  const setViewportBounds = useAirspaceStore((state) => state.setViewportBounds);
+  const setViewportBounds = useRadarStore((state) => state.setViewportBounds);
   
   const lastUpdate = useRef(0);
   const lastBounds = useRef<string>('');

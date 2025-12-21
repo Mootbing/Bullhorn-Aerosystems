@@ -13,7 +13,7 @@ const Scene = dynamic(() => import('@/components/Scene').then((mod) => mod.Scene
           INITIALIZING SYSTEM
         </div>
         <div className="mt-4 text-[10px] text-[#444] tracking-[0.15em]">
-          LOADING_AIRSPACE_MODULE...
+          LOADING_COWLANTIR_RADAR...
         </div>
       </div>
     </div>

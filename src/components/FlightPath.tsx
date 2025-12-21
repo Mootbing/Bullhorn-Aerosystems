@@ -1,8 +1,9 @@
 'use client';
 
-import { useMemo, useEffect } from 'react';
+import { useMemo, useEffect, useState } from 'react';
 import * as THREE from 'three';
-import { useAirspaceStore, TrackWaypoint } from '@/store/gameStore';
+import { LineDashedMaterial } from 'three';
+import { useRadarStore, TrackWaypoint, Aircraft } from '@/store/gameStore';
 
 function latLonToVector3(lat: number, lon: number, alt: number = 0): THREE.Vector3 {
   const r = 1 + alt * 0.0000005;
@@ -23,13 +24,10 @@ function interpolateOnGlobe(p1: THREE.Vector3, p2: THREE.Vector3, t: number, alt
   return result;
 }
 
-function FlightPathLine({ waypoints, isHovered }: { waypoints: TrackWaypoint[]; isHovered: boolean }) {
+// Solid white line for traveled path
+function TraveledPath({ waypoints }: { waypoints: TrackWaypoint[] }) {
   const lineObject = useMemo(() => {
-    if (waypoints.length < 2) {
-      return null;
-    }
-    
-    console.log('[FlightPath] Creating line with', waypoints.length, 'waypoints');
+    if (waypoints.length < 2) return null;
 
     const points: THREE.Vector3[] = [];
     
@@ -42,87 +40,164 @@ function FlightPathLine({ waypoints, isHovered }: { waypoints: TrackWaypoint[]; 
         const prevPos = latLonToVector3(prevWp.latitude, prevWp.longitude, prevWp.altitude);
         const avgAlt = (wp.altitude + prevWp.altitude) / 2;
         
+        // Add interpolated points for smooth curve
         for (let j = 1; j <= 3; j++) {
           const t = j / 4;
-          const interpPos = interpolateOnGlobe(prevPos, pos, t, avgAlt);
-          points.push(interpPos);
+          points.push(interpolateOnGlobe(prevPos, pos, t, avgAlt));
         }
       }
       
       points.push(pos);
     }
     
-    console.log('[FlightPath] Total points: ', points.length);
-    
     const geo = new THREE.BufferGeometry().setFromPoints(points);
     
-    const finalColors: number[] = [];
+    // Gradient from dim to bright white
+    const colors: number[] = [];
     for (let i = 0; i < points.length; i++) {
       const progress = i / (points.length - 1);
-      const intensity = 0.2 + progress * 0.8;
-      finalColors.push(0, intensity, intensity * 0.9);
+      const intensity = 0.3 + progress * 0.7; // Start dimmer, end bright
+      colors.push(intensity, intensity, intensity);
     }
-    
-    geo.setAttribute('color', new THREE.Float32BufferAttribute(finalColors, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
     
     const mat = new THREE.LineBasicMaterial({
       vertexColors: true,
       transparent: true,
-      opacity: 0.8,
+      opacity: 0.9,
     });
     
     return new THREE.Line(geo, mat);
   }, [waypoints]);
 
-  useEffect(() => {
-    if (lineObject && lineObject.material instanceof THREE.LineBasicMaterial) {
-      lineObject.material.opacity = isHovered ? 0.9 : 0.7;
+  if (!lineObject) return null;
+  return <primitive object={lineObject} />;
+}
+
+// Dotted white line for predicted future path
+function PredictedPath({ aircraft }: { aircraft: Aircraft }) {
+  const lineObject = useMemo(() => {
+    if (!aircraft) return null;
+    
+    const { latitude, longitude, altitude, heading, speed } = aircraft.position;
+    
+    // Predict path based on current heading and speed
+    // Show ~10 minutes of predicted flight
+    const predictMinutes = 10;
+    const points: THREE.Vector3[] = [];
+    
+    // Current position
+    const startPos = latLonToVector3(latitude, longitude, altitude);
+    points.push(startPos);
+    
+    // Calculate predicted positions
+    // Speed is in knots, convert to degrees per minute (very rough approximation)
+    const speedDegPerMin = (speed / 60) / 60; // Rough conversion
+    const headingRad = heading * (Math.PI / 180);
+    
+    for (let min = 1; min <= predictMinutes; min++) {
+      const distance = speedDegPerMin * min;
+      const newLat = latitude + distance * Math.cos(headingRad);
+      const newLon = longitude + distance * Math.sin(headingRad);
+      
+      // Clamp to valid ranges
+      const clampedLat = Math.max(-90, Math.min(90, newLat));
+      const clampedLon = ((newLon + 180) % 360) - 180;
+      
+      const pos = latLonToVector3(clampedLat, clampedLon, altitude);
+      
+      // Add intermediate points for curve
+      if (points.length > 0) {
+        const prevPos = points[points.length - 1];
+        for (let j = 1; j <= 2; j++) {
+          const t = j / 3;
+          points.push(interpolateOnGlobe(prevPos, pos, t, altitude));
+        }
+      }
+      points.push(pos);
     }
-  }, [isHovered, lineObject]);
+    
+    const geo = new THREE.BufferGeometry().setFromPoints(points);
+    
+    const mat = new LineDashedMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.5,
+      dashSize: 0.003,
+      gapSize: 0.003,
+    });
+    
+    const line = new THREE.Line(geo, mat);
+    line.computeLineDistances(); // Required for dashed lines - must be called on Line, not geometry
+    return line;
+  }, [aircraft]);
 
-  if (!lineObject || waypoints.length < 2) {
-    return null;
-  }
-
+  if (!lineObject) return null;
   return <primitive object={lineObject} />;
 }
 
 export function FlightPath({ icao24 }: { icao24: string | null }) {
-  const flightTracks = useAirspaceStore((state) => state.flightTracks);
-  const fetchFlightTrack = useAirspaceStore((state) => state.fetchFlightTrack);
-  const hoveredAircraft = useAirspaceStore((state) => state.gameState.hoveredAircraft);
-  const selectedAircraft = useAirspaceStore((state) => state.gameState.selectedAircraft);
+  const fetchFlightTrack = useRadarStore((state) => state.fetchFlightTrack);
+  const hoveredAircraft = useRadarStore((state) => state.gameState.hoveredAircraft);
+  const selectedAircraft = useRadarStore((state) => state.gameState.selectedAircraft);
+  const aircraft = useRadarStore((state) => state.aircraft);
+  
+  // Force re-render when tracks update by subscribing to the whole store
+  const [trackData, setTrackData] = useState<{ waypoints: TrackWaypoint[]; isLoading: boolean; error?: string } | null>(null);
   
   const displayId = icao24 || hoveredAircraft || selectedAircraft;
-  const isHovered = displayId === hoveredAircraft;
   
+  // Get the current aircraft for predicted path
+  const currentAircraft = displayId ? aircraft.find(a => a.id === displayId) : undefined;
+  
+  // Subscribe to track changes
   useEffect(() => {
-    if (displayId) {
-      console.log('[FlightPath] Fetching track for:', displayId);
-      fetchFlightTrack(displayId);
+    if (!displayId) {
+      setTrackData(null);
+      return;
     }
+    
+    // Initial fetch
+    fetchFlightTrack(displayId);
+    
+    // Subscribe to store changes
+    const unsubscribe = useRadarStore.subscribe((state) => {
+      const track = state.flightTracks.get(displayId);
+      if (track) {
+        setTrackData({
+          waypoints: track.waypoints,
+          isLoading: track.isLoading || false,
+          error: track.error,
+        });
+      } else {
+        setTrackData(null);
+      }
+    });
+    
+    // Check immediately
+    const currentTrack = useRadarStore.getState().flightTracks.get(displayId);
+    if (currentTrack) {
+      setTrackData({
+        waypoints: currentTrack.waypoints,
+        isLoading: currentTrack.isLoading || false,
+        error: currentTrack.error,
+      });
+    }
+    
+    return unsubscribe;
   }, [displayId, fetchFlightTrack]);
   
-  if (!displayId) {
-    return null;
-  }
+  if (!displayId) return null;
   
-  const track = flightTracks.get(displayId);
-  
-  console.log('[FlightPath] Track state:', {
-    hasTrack: !!track,
-    isLoading: track?.isLoading,
-    error: track?.error,
-    waypoints: track?.waypoints?.length || 0,
-  });
-  
-  if (!track || track.isLoading || track.error || track.waypoints.length < 2) {
-    return null;
-  }
+  const hasTrack = trackData && !trackData.isLoading && !trackData.error && trackData.waypoints.length >= 2;
   
   return (
     <group>
-      <FlightPathLine waypoints={track.waypoints} isHovered={isHovered} />
+      {/* Solid white line for traveled path */}
+      {hasTrack && <TraveledPath waypoints={trackData.waypoints} />}
+      
+      {/* Dotted white line for predicted future path */}
+      {currentAircraft && <PredictedPath aircraft={currentAircraft} />}
     </group>
   );
 }

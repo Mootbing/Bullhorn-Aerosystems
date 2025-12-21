@@ -3,7 +3,7 @@
 import { useState, useRef } from 'react';
 import { useThree, useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { useAirspaceStore, Aircraft } from '@/store/gameStore';
+import { useRadarStore, Aircraft } from '@/store/gameStore';
 import { AircraftDot } from './AircraftDot';
 import { FlightPath } from './FlightPath';
 
@@ -20,10 +20,10 @@ function latLonToVector3(lat: number, lon: number, alt: number = 0): THREE.Vecto
 }
 
 export function AircraftLayer() {
-  const aircraft = useAirspaceStore((state) => state.aircraft);
-  const selectAircraft = useAirspaceStore((state) => state.selectAircraft);
-  const hoveredAircraft = useAirspaceStore((state) => state.gameState.hoveredAircraft);
-  const selectedAircraft = useAirspaceStore((state) => state.gameState.selectedAircraft);
+  const aircraft = useRadarStore((state) => state.aircraft);
+  const selectAircraft = useRadarStore((state) => state.selectAircraft);
+  const hoveredAircraft = useRadarStore((state) => state.gameState.hoveredAircraft);
+  const selectedAircraft = useRadarStore((state) => state.gameState.selectedAircraft);
   const { camera } = useThree();
   
   const displayPathFor = hoveredAircraft || selectedAircraft;

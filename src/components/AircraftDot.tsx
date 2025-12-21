@@ -3,7 +3,7 @@
 import { useRef, useEffect, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { useAirspaceStore, ViewportBounds } from '@/store/gameStore';
+import { useRadarStore, ViewportBounds } from '@/store/gameStore';
 
 interface Aircraft {
   id: string;
@@ -139,11 +139,11 @@ const LOD_THRESHOLD = 500;
 export function AircraftDot({ aircraft, onClick }: { aircraft: Aircraft; onClick?: () => void }) {
   const groupRef = useRef<THREE.Group>(null);
   const meshRef = useRef<THREE.Mesh>(null);
-  const selectedAircraft = useAirspaceStore((state) => state.gameState.selectedAircraft);
-  const hoveredAircraft = useAirspaceStore((state) => state.gameState.hoveredAircraft);
-  const hoverAircraft = useAirspaceStore((state) => state.hoverAircraft);
-  const viewportBounds = useAirspaceStore((state) => state.viewportBounds);
-  const aircraftCount = useAirspaceStore((state) => state.aircraft.length);
+  const selectedAircraft = useRadarStore((state) => state.gameState.selectedAircraft);
+  const hoveredAircraft = useRadarStore((state) => state.gameState.hoveredAircraft);
+  const hoverAircraft = useRadarStore((state) => state.hoverAircraft);
+  const viewportBounds = useRadarStore((state) => state.viewportBounds);
+  const aircraftCount = useRadarStore((state) => state.aircraft.length);
   const isSelected = selectedAircraft === aircraft.id;
   const isHovered = hoveredAircraft === aircraft.id;
   const useSimpleMode = aircraftCount > LOD_THRESHOLD;

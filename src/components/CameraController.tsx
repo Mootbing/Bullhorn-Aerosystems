@@ -4,13 +4,13 @@ import { useRef, useEffect, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
-import { useAirspaceStore } from '@/store/gameStore';
+import { useRadarStore } from '@/store/gameStore';
 
 const MIN_CAMERA_DISTANCE = 1.12;
 const DEFAULT_CAMERA_DISTANCE = 2.5;
 const CITY_ZOOM_DISTANCE = 1.15; // Zoomed in on a city
-const FOLLOW_DISTANCE = 0.04; // How far behind the aircraft to position camera
-const FOLLOW_HEIGHT = 0.02; // How high above the aircraft
+const FOLLOW_DISTANCE = 0.005; // Very close behind the aircraft
+const FOLLOW_HEIGHT = 0.003; // Just slightly above
 
 // Default to New York City
 const DEFAULT_LOCATION = { lat: 40.7128, lon: -74.006 };
@@ -58,9 +58,9 @@ export function CameraController() {
   const controlsRef = useRef<any>(null);
   const { camera } = useThree();
   
-  const selectedId = useAirspaceStore((state) => state.gameState.selectedAircraft);
-  const aircraft = useAirspaceStore((state) => state.aircraft);
-  const setLocationReady = useAirspaceStore((state) => state.setLocationReady);
+  const selectedId = useRadarStore((state) => state.gameState.selectedAircraft);
+  const aircraft = useRadarStore((state) => state.aircraft);
+  const setLocationReady = useRadarStore((state) => state.setLocationReady);
   
   const isAnimating = useRef(false);
   const animationProgress = useRef(0);
@@ -203,8 +203,8 @@ export function CameraController() {
           .sub(forward.clone().multiplyScalar(FOLLOW_DISTANCE)) // Behind
           .add(up.clone().multiplyScalar(FOLLOW_HEIGHT)); // Above
         
-        // Look at a point ahead of the aircraft
-        const lookAtPos = aircraftPos.clone().add(forward.clone().multiplyScalar(0.05));
+        // Look at a point just ahead of the aircraft
+        const lookAtPos = aircraftPos.clone().add(forward.clone().multiplyScalar(0.008));
         
         targetCameraPos.current.copy(cameraPos);
         targetLookAt.current.copy(lookAtPos);

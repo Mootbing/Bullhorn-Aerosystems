@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useCallback, useRef } from 'react';
-import { useAirspaceStore, ViewportBounds, Aircraft } from '@/store/gameStore';
+import { useRadarStore, ViewportBounds, Aircraft } from '@/store/gameStore';
 
 function generateMockData(bounds: ViewportBounds | null, count: number = 50) {
   const countries = ['United States', 'China', 'Germany', 'United Kingdom', 'France', 'Japan', 'Australia', 'Canada', 'Brazil', 'India'];
@@ -91,12 +91,12 @@ function parseStateVector(s: any[]): Aircraft | null {
 }
 
 export function DataPoller() {
-  const isPolling = useAirspaceStore((state) => state.isPolling);
-  const setAircraft = useAirspaceStore((state) => state.setAircraft);
-  const aircraft = useAirspaceStore((state) => state.aircraft);
-  const viewportBounds = useAirspaceStore((state) => state.viewportBounds);
-  const selectedAircraft = useAirspaceStore((state) => state.gameState.selectedAircraft);
-  const locationReady = useAirspaceStore((state) => state.locationReady);
+  const isPolling = useRadarStore((state) => state.isPolling);
+  const setAircraft = useRadarStore((state) => state.setAircraft);
+  const aircraft = useRadarStore((state) => state.aircraft);
+  const viewportBounds = useRadarStore((state) => state.viewportBounds);
+  const selectedAircraft = useRadarStore((state) => state.gameState.selectedAircraft);
+  const locationReady = useRadarStore((state) => state.locationReady);
   
   const hasInitialized = useRef(false);
   const lastFetchBounds = useRef<string>('');
