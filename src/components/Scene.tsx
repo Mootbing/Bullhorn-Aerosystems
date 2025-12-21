@@ -3,6 +3,7 @@
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Stars, PerspectiveCamera } from '@react-three/drei';
 import { Globe } from './Globe';
+import { CountryBorders } from './CountryBorders';
 import { AircraftLayer } from './AircraftLayer';
 import { Suspense } from 'react';
 
@@ -26,6 +27,7 @@ export function Scene() {
         <Stars radius={100} depth={50} count={2000} factor={3} saturation={0} fade speed={0.2} />
         <Suspense fallback={<LoadingFallback />}>
           <Globe />
+          <CountryBorders />
           <AircraftLayer />
         </Suspense>
         <OrbitControls enablePan={false} minDistance={1.3} maxDistance={5} rotateSpeed={0.5} zoomSpeed={0.8} dampingFactor={0.1} enableDamping />
