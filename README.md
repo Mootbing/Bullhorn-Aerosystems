@@ -1,36 +1,146 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# COWLANTIR RADAR SYSTEMS
+
+A real-time global flight tracking visualization built with Next.js, React Three Fiber, and the OpenSky Network API.
+
+![Cowlantir Radar](https://img.shields.io/badge/version-0.1.0-blue)
+![Next.js](https://img.shields.io/badge/Next.js-15-black)
+![Three.js](https://img.shields.io/badge/Three.js-r170-green)
+
+## Features
+
+- **3D Globe Visualization** - Interactive Earth with real-time aircraft positions
+- **Live Flight Data** - Real-time data from OpenSky Network API
+- **Dynamic Loading** - Only loads aircraft within the current viewport
+- **Level of Detail** - Switches between 3D paper planes and 2D triangles based on aircraft count
+- **Flight Paths** - View historical track (solid line) and predicted path (dotted line)
+- **NLP Search** - Natural language search for flights (e.g., "United flights above 35000ft")
+- **Flight Info Panel** - Detailed information with boarding pass-style route display
+- **Smooth Animations** - Interpolated aircraft positions and camera movements
+- **Geolocation** - Starts at user's location (or NYC if denied)
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- Node.js 18+
+- npm or yarn
+- OpenSky Network account (free)
+
+### Installation
+
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/Cowland-Game-Studios/Airspace.git
+   cd Airspace
+   ```
+
+2. **Install dependencies**
+   ```bash
+   npm install
+   ```
+
+3. **Set up OpenSky API credentials**
+   
+   Create a free account at [OpenSky Network](https://opensky-network.org/index.php?option=com_users&view=registration), then download your credentials or create a `credentials.json` file in the project root:
+   
+   ```json
+   {
+     "clientId": "your-username",
+     "clientSecret": "your-password"
+   }
+   ```
+   
+   > ⚠️ This file is gitignored and should never be committed.
+
+4. **Run the development server**
+   ```bash
+   npm run dev
+   ```
+
+5. **Open your browser**
+   
+   Navigate to [http://localhost:3000](http://localhost:3000)
+
+## Usage
+
+### Controls
+
+| Action | Control |
+|--------|---------|
+| Rotate globe | Click and drag |
+| Zoom | Scroll wheel |
+| Orbit around point | Hold Shift + drag |
+| Select aircraft | Click on plane |
+| Deselect aircraft | Click [UNFOLLOW] button |
+| Search flights | Use the search bar (bottom left) |
+
+### Search Examples
+
+The search bar supports natural language queries:
+
+- `UAL123` - Find specific callsign
+- `Delta flights` - Find all Delta aircraft
+- `above 35000ft` - Find high-altitude flights
+- `from Germany` - Find aircraft from Germany
+- `heading north` - Find northbound flights
+
+## Architecture
+
+```
+src/
+├── app/
+│   ├── api/
+│   │   ├── aircraft/     # OpenSky API proxy with auth & rate limiting
+│   │   ├── flight-route/ # Flight route lookup
+│   │   └── search/       # NLP search endpoint
+│   └── page.tsx
+├── components/
+│   ├── Scene.tsx         # Three.js canvas setup
+│   ├── Globe.tsx         # Earth sphere with texture
+│   ├── AircraftLayer.tsx # Aircraft rendering manager
+│   ├── AircraftDot.tsx   # Individual aircraft component
+│   ├── FlightPath.tsx    # Flight path visualization
+│   ├── CameraController.tsx
+│   ├── Dashboard.tsx     # UI overlay
+│   └── SearchBar.tsx     # NLP search interface
+└── store/
+    └── gameStore.ts      # Zustand state management
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Rate Limiting
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+The app includes built-in rate limiting to protect your OpenSky API quota:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Limit | Value |
+|-------|-------|
+| Minimum request interval | 5 seconds |
+| Max requests per minute | 10 |
+| Polling interval | 15 seconds (with exponential backoff on errors) |
+| Daily limit (OpenSky) | ~4,000 requests for authenticated users |
 
-## Learn More
+## Tech Stack
 
-To learn more about Next.js, take a look at the following resources:
+- **Framework**: Next.js 15 (App Router)
+- **3D Rendering**: React Three Fiber + Three.js
+- **State Management**: Zustand
+- **Styling**: Tailwind CSS
+- **Flight Data**: OpenSky Network API
+- **NLP**: OpenAI GPT (optional, for search)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Environment Variables (Optional)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+For enhanced NLP search capabilities, add to `.env.local`:
 
-## Deploy on Vercel
+```env
+OPENAI_API_KEY=your-openai-api-key
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## License
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+MIT
+
+## Acknowledgments
+
+- [OpenSky Network](https://opensky-network.org/) for real-time flight data
+- [React Three Fiber](https://github.com/pmndrs/react-three-fiber) for 3D rendering
+- [Zustand](https://github.com/pmndrs/zustand) for state management

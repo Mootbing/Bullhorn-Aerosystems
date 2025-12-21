@@ -102,6 +102,8 @@ export function DataPoller() {
   const lastFetchBounds = useRef<string>('');
   const cachedAircraft = useRef<Map<string, Aircraft>>(new Map());
   const fetchController = useRef<AbortController | null>(null);
+  const lastFetchTime = useRef(0);
+  const consecutiveErrors = useRef(0);
   
   const fetchData = useCallback(async (bounds: ViewportBounds | null) => {
     // Don't fetch until location and viewport are ready
@@ -120,17 +122,31 @@ export function DataPoller() {
       const lomin = normalizeLon(bounds.minLon);
       const lomax = normalizeLon(bounds.maxLon);
       
-      const url = `https://opensky-network.org/api/states/all?lamin=${lamin.toFixed(2)}&lamax=${lamax.toFixed(2)}&lomin=${lomin.toFixed(2)}&lomax=${lomax.toFixed(2)}`;
+      // Use our internal API route which handles auth and rate limiting
+      const url = `/api/aircraft?lamin=${lamin.toFixed(2)}&lamax=${lamax.toFixed(2)}&lomin=${lomin.toFixed(2)}&lomax=${lomax.toFixed(2)}`;
+      
+      console.log('[DataPoller] Fetching via API route...');
       
       const res = await fetch(url, {
-        headers: { 'Accept': 'application/json' },
         signal: fetchController.current.signal,
       });
       
-      if (!res.ok) throw new Error('API error');
-      const text = await res.text();
-      if (!text || !text.startsWith('{')) throw new Error('Invalid JSON');
-      const data = JSON.parse(text);
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        if (res.status === 429) {
+          const retryAfter = errorData.retryAfter || 10;
+          console.warn(`[DataPoller] Rate limited. Retry in ${retryAfter}s`);
+          consecutiveErrors.current++;
+          throw new Error(`Rate limited - retry in ${retryAfter}s`);
+        }
+        throw new Error(errorData.message || `API error: ${res.status}`);
+      }
+      
+      const data = await res.json();
+      consecutiveErrors.current = 0; // Reset on success
+      lastFetchTime.current = Date.now();
+      
+      console.log('[DataPoller] Received', data.states?.length || 0, 'aircraft');
       
       if (data.states && data.states.length > 0) {
         const newAircraft = new Map<string, Aircraft>();
@@ -172,9 +188,14 @@ export function DataPoller() {
     } catch (e: any) {
       if (e.name === 'AbortError') return; // Ignore aborted requests
       
-      console.log('Using mock data:', e.message);
+      console.warn('[DataPoller] API failed:', e.message);
+      // Only use mock data if we have absolutely no data yet
+      // Once we have any data (real or mock), don't replace it on API failure
       if (aircraft.length === 0) {
+        console.log('[DataPoller] No data available, using mock data as fallback');
         setAircraft(generateMockData(bounds));
+      } else {
+        console.log('[DataPoller] Keeping existing', aircraft.length, 'aircraft');
       }
     }
   }, [isPolling, setAircraft, aircraft.length, selectedAircraft]);
@@ -205,10 +226,19 @@ export function DataPoller() {
   }, [viewportBounds, isPolling, fetchData, locationReady]);
   
   // Regular polling interval - only when location is ready
+  // Use longer intervals to stay well under rate limits
   useEffect(() => {
     if (!isPolling || !locationReady || !viewportBounds) return;
-    const interval = setInterval(() => fetchData(viewportBounds), 15000);
-    return () => clearInterval(interval);
+    
+    // Increase interval based on consecutive errors (exponential backoff)
+    const baseInterval = 15000; // 15 seconds base
+    const backoffMultiplier = Math.min(Math.pow(2, consecutiveErrors.current), 8); // Max 8x = 2 minutes
+    const interval = baseInterval * backoffMultiplier;
+    
+    console.log(`[DataPoller] Polling every ${interval / 1000}s (errors: ${consecutiveErrors.current})`);
+    
+    const timer = setInterval(() => fetchData(viewportBounds), interval);
+    return () => clearInterval(timer);
   }, [isPolling, fetchData, viewportBounds, locationReady]);
   
   return null;
