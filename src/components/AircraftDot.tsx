@@ -3,13 +3,65 @@
 import { useRef, useEffect, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { useAirspaceStore } from '@/store/gameStore';
+import { useAirspaceStore, ViewportBounds } from '@/store/gameStore';
 
 interface Aircraft {
   id: string;
   callsign: string;
   position: { latitude: number; longitude: number; altitude: number; heading: number; speed: number; };
   isPlayerControlled?: boolean;
+}
+
+// Calculate opacity based on distance from viewport edge
+function calculateEdgeOpacity(lat: number, lon: number, bounds: ViewportBounds | null): number {
+  if (!bounds) return 1;
+  
+  const latRange = bounds.maxLat - bounds.minLat;
+  const lonRange = bounds.maxLon - bounds.minLon;
+  
+  // Fade zone is 5% of the viewport size from each edge (tighter viewport)
+  const fadeZoneLat = latRange * 0.05;
+  const fadeZoneLon = lonRange * 0.05;
+  
+  // Calculate distance from edges (normalized 0-1 within fade zone)
+  let latFade = 1;
+  let lonFade = 1;
+  
+  // Latitude fade
+  const distFromMinLat = lat - bounds.minLat;
+  const distFromMaxLat = bounds.maxLat - lat;
+  
+  if (distFromMinLat < fadeZoneLat) {
+    latFade = Math.max(0, distFromMinLat / fadeZoneLat);
+  } else if (distFromMaxLat < fadeZoneLat) {
+    latFade = Math.max(0, distFromMaxLat / fadeZoneLat);
+  }
+  
+  // Longitude fade (handle wraparound)
+  const normalizeLon = (l: number) => {
+    while (l > 180) l -= 360;
+    while (l < -180) l += 360;
+    return l;
+  };
+  
+  const normalizedLon = normalizeLon(lon);
+  const minLon = normalizeLon(bounds.minLon);
+  const maxLon = normalizeLon(bounds.maxLon);
+  
+  if (minLon <= maxLon) {
+    const distFromMinLon = normalizedLon - minLon;
+    const distFromMaxLon = maxLon - normalizedLon;
+    
+    if (distFromMinLon < fadeZoneLon) {
+      lonFade = Math.max(0, distFromMinLon / fadeZoneLon);
+    } else if (distFromMaxLon < fadeZoneLon) {
+      lonFade = Math.max(0, distFromMaxLon / fadeZoneLon);
+    }
+  }
+  
+  // Use minimum of both fades, with smooth easing
+  const rawOpacity = Math.min(latFade, lonFade);
+  return rawOpacity * rawOpacity * (3 - 2 * rawOpacity); // Smoothstep
 }
 
 function latLonToVector3(lat: number, lon: number, alt: number = 0): THREE.Vector3 {
@@ -45,7 +97,8 @@ function getAircraftOrientation(lat: number, lon: number, heading: number): THRE
   north.crossVectors(east, up).normalize();
   
   // Heading: 0 = north, 90 = east, 180 = south, 270 = west
-  const headingRad = heading * (Math.PI / 180);
+  // Add 90 degrees to correct orientation (nose pointing in direction of travel)
+  const headingRad = (heading + 90) * (Math.PI / 180);
   
   // Forward direction based on heading
   const forward = new THREE.Vector3()
@@ -65,18 +118,47 @@ function getAircraftOrientation(lat: number, lon: number, heading: number): THRE
   return quaternion;
 }
 
+// Simple 2D triangle geometry for LOD (when there are many aircraft)
+const triangleGeometry = (() => {
+  const s = 0.006;
+  const geometry = new THREE.BufferGeometry();
+  // Flat triangle pointing in +Y direction (forward)
+  const vertices = new Float32Array([
+    0, s * 1.2, 0,        // Nose (front)
+    -s * 0.6, -s * 0.6, 0, // Back left
+    s * 0.6, -s * 0.6, 0,  // Back right
+  ]);
+  geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+  geometry.computeVertexNormals();
+  return geometry;
+})();
+
+// Threshold for switching to simple triangles (LOD)
+const LOD_THRESHOLD = 500;
+
 export function AircraftDot({ aircraft, onClick }: { aircraft: Aircraft; onClick?: () => void }) {
   const groupRef = useRef<THREE.Group>(null);
+  const meshRef = useRef<THREE.Mesh>(null);
   const selectedAircraft = useAirspaceStore((state) => state.gameState.selectedAircraft);
   const hoveredAircraft = useAirspaceStore((state) => state.gameState.hoveredAircraft);
   const hoverAircraft = useAirspaceStore((state) => state.hoverAircraft);
+  const viewportBounds = useAirspaceStore((state) => state.viewportBounds);
+  const aircraftCount = useAirspaceStore((state) => state.aircraft.length);
   const isSelected = selectedAircraft === aircraft.id;
   const isHovered = hoveredAircraft === aircraft.id;
+  const useSimpleMode = aircraftCount > LOD_THRESHOLD;
   
-  const currentPos = useRef(latLonToVector3(aircraft.position.latitude, aircraft.position.longitude, aircraft.position.altitude));
-  const targetPos = useRef(currentPos.current.clone());
-  const currentQuat = useRef(getAircraftOrientation(aircraft.position.latitude, aircraft.position.longitude, aircraft.position.heading));
-  const targetQuat = useRef(currentQuat.current.clone());
+  const currentOpacity = useRef(0); // Start invisible, fade in
+  const targetOpacity = useRef(1);
+  const hasAppeared = useRef(false);
+  
+  const initialPos = latLonToVector3(aircraft.position.latitude, aircraft.position.longitude, aircraft.position.altitude);
+  const initialQuat = getAircraftOrientation(aircraft.position.latitude, aircraft.position.longitude, aircraft.position.heading);
+  
+  const currentPos = useRef(initialPos.clone());
+  const targetPos = useRef(initialPos.clone());
+  const currentQuat = useRef(initialQuat.clone());
+  const targetQuat = useRef(initialQuat.clone());
   
   // 3D Paper airplane geometry
   const planeGeometry = useMemo(() => {
@@ -151,18 +233,56 @@ export function AircraftDot({ aircraft, onClick }: { aircraft: Aircraft; onClick
   useFrame((state, delta) => {
     if (!groupRef.current) return;
     
-    // Lerp position
-    currentPos.current.lerp(targetPos.current, Math.min(delta * 2, 1));
+    // Smooth position interpolation - matches 15 second API update interval
+    // Factor of delta * 0.2 gives smooth ~15 second transition to target
+    const posSmoothFactor = Math.min(delta * 0.2, 0.02);
+    currentPos.current.lerp(targetPos.current, posSmoothFactor);
     groupRef.current.position.copy(currentPos.current);
     
-    // Slerp rotation
-    currentQuat.current.slerp(targetQuat.current, Math.min(delta * 2, 1));
+    // Smooth rotation interpolation - slightly faster than position for responsive heading
+    const rotSmoothFactor = Math.min(delta * 0.3, 0.03);
+    currentQuat.current.slerp(targetQuat.current, rotSmoothFactor);
     groupRef.current.quaternion.copy(currentQuat.current);
+    
+    // Calculate zoom-based scale (like FlightRadar24)
+    // Camera distance ranges from ~1.05 (very close) to ~5 (far away)
+    const cameraDistance = state.camera.position.length();
+    // Scale factor: SMALLER when zoomed in to prevent overlapping, larger when zoomed out
+    // At distance 1.15 (city zoom), scale = ~0.3 (small to avoid overlap)
+    // At distance 2.5 (default), scale = ~0.7
+    // At distance 5 (max zoom out), scale = 1.0 (full size)
+    const zoomScale = Math.max(0.2, Math.min(1.2, cameraDistance / 5));
     
     // Scale on hover/select
     const baseScale = isSelected ? 1.5 : isHovered ? 1.3 : 1;
     const pulse = (isSelected || isHovered) ? 1 + Math.sin(state.clock.elapsedTime * 4) * 0.1 : 1;
-    groupRef.current.scale.setScalar(baseScale * pulse);
+    groupRef.current.scale.setScalar(baseScale * pulse * zoomScale);
+    
+    // Smooth opacity transitions for viewport edge fading and fade-in
+    // Selected/hovered aircraft always fully visible
+    const edgeOpacity = (isSelected || isHovered) ? 1 : calculateEdgeOpacity(
+      aircraft.position.latitude,
+      aircraft.position.longitude,
+      viewportBounds
+    );
+    
+    // Fade in on first appearance
+    if (!hasAppeared.current) {
+      hasAppeared.current = true;
+      currentOpacity.current = 0;
+    }
+    
+    targetOpacity.current = edgeOpacity;
+    // Smooth opacity transition
+    const opacitySmoothFactor = Math.min(delta * 3, 0.2);
+    currentOpacity.current += (targetOpacity.current - currentOpacity.current) * opacitySmoothFactor;
+    
+    // Update material opacity
+    if (meshRef.current) {
+      const material = meshRef.current.material as THREE.MeshBasicMaterial;
+      material.opacity = currentOpacity.current;
+      material.transparent = currentOpacity.current < 1;
+    }
   });
   
   const getColor = () => {
@@ -179,13 +299,15 @@ export function AircraftDot({ aircraft, onClick }: { aircraft: Aircraft; onClick
       onPointerOver={(e) => { e.stopPropagation(); hoverAircraft(aircraft.id); document.body.style.cursor = 'pointer'; }}
       onPointerOut={() => { hoverAircraft(null); document.body.style.cursor = 'auto'; }}
     >
-      {/* Invisible larger hitbox for easier clicking */}
-      <mesh geometry={hitboxGeometry}>
-        <meshBasicMaterial transparent opacity={0} side={THREE.DoubleSide} />
-      </mesh>
-      {/* Visible 3D paper airplane */}
-      <mesh geometry={planeGeometry}>
-        <meshBasicMaterial color={getColor()} side={THREE.DoubleSide} />
+      {/* Only show hitbox in detailed paper airplane mode for performance */}
+      {!useSimpleMode && (
+        <mesh geometry={hitboxGeometry}>
+          <meshBasicMaterial transparent opacity={0} side={THREE.DoubleSide} />
+        </mesh>
+      )}
+      {/* LOD: Show simple 2D triangle or detailed paper airplane based on aircraft count */}
+      <mesh ref={meshRef} geometry={useSimpleMode ? triangleGeometry : planeGeometry}>
+        <meshBasicMaterial color={getColor()} side={THREE.DoubleSide} transparent />
       </mesh>
     </group>
   );
