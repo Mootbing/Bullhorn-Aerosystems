@@ -2,6 +2,7 @@
 
 import { useRef, useEffect, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
+import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { useRadarStore, ViewportBounds } from '@/store/gameStore';
 
@@ -118,9 +119,37 @@ function getAircraftOrientation(lat: number, lon: number, heading: number): THRE
   return quaternion;
 }
 
+// Predict position based on speed (knots) and heading after elapsed time (seconds)
+function predictPosition(
+  lat: number, 
+  lon: number, 
+  heading: number, 
+  speedKnots: number, 
+  elapsedSeconds: number
+): { lat: number; lon: number } {
+  // Convert knots to degrees per second (approximate at earth's surface)
+  // 1 knot = 1.852 km/h, Earth radius ~6371 km
+  // 1 degree latitude = ~111 km
+  const knotsToDegreesPerSecond = (speedKnots * 1.852) / (111 * 3600);
+  
+  // Calculate distance traveled in degrees
+  const distanceDegrees = knotsToDegreesPerSecond * elapsedSeconds;
+  
+  // Convert heading to radians (0 = north, 90 = east)
+  const headingRad = heading * (Math.PI / 180);
+  
+  // Calculate new position
+  const newLat = lat + distanceDegrees * Math.cos(headingRad);
+  // Adjust longitude for latitude (longitude degrees are smaller near poles)
+  const lonScale = Math.cos(lat * Math.PI / 180);
+  const newLon = lon + (distanceDegrees * Math.sin(headingRad)) / Math.max(0.1, lonScale);
+  
+  return { lat: newLat, lon: newLon };
+}
+
 // Simple 2D triangle geometry for LOD (when there are many aircraft)
 const triangleGeometry = (() => {
-  const s = 0.006;
+  const s = 0.006; // Original size
   const geometry = new THREE.BufferGeometry();
   // Flat triangle pointing in +Y direction (forward)
   const vertices = new Float32Array([
@@ -157,12 +186,20 @@ export function AircraftDot({ aircraft, onClick }: { aircraft: Aircraft; onClick
   
   const currentPos = useRef(initialPos.clone());
   const targetPos = useRef(initialPos.clone());
+  
+  // Dead reckoning prediction state
+  const lastServerLat = useRef(aircraft.position.latitude);
+  const lastServerLon = useRef(aircraft.position.longitude);
+  const lastServerAlt = useRef(aircraft.position.altitude);
+  const lastServerHeading = useRef(aircraft.position.heading);
+  const lastServerSpeed = useRef(aircraft.position.speed);
+  const lastServerTime = useRef(Date.now());
   const currentQuat = useRef(initialQuat.clone());
   const targetQuat = useRef(initialQuat.clone());
   
   // 3D Paper airplane geometry
   const planeGeometry = useMemo(() => {
-    const s = 0.008;
+    const s = 0.008; // Original size
     const geometry = new THREE.BufferGeometry();
     
     // Paper airplane: nose at +Y, wings at +Z (away from globe), keel at -Z (into globe)
@@ -206,7 +243,7 @@ export function AircraftDot({ aircraft, onClick }: { aircraft: Aircraft; onClick
   
   // Larger hitbox for easier clicking
   const hitboxGeometry = useMemo(() => {
-    const s = 0.02;
+    const s = 0.02; // Original size for clickability
     const geometry = new THREE.BufferGeometry();
     const vertices = new Float32Array([
       0, s * 1.5, 0,
@@ -225,19 +262,73 @@ export function AircraftDot({ aircraft, onClick }: { aircraft: Aircraft; onClick
     return geometry;
   }, []);
   
+  // Update when server sends new position data
   useEffect(() => {
+    // Store new server data for prediction
+    lastServerLat.current = aircraft.position.latitude;
+    lastServerLon.current = aircraft.position.longitude;
+    lastServerAlt.current = aircraft.position.altitude;
+    lastServerHeading.current = aircraft.position.heading;
+    lastServerSpeed.current = aircraft.position.speed;
+    lastServerTime.current = Date.now();
+    
+    // Update target to new server position (lerping will smooth the transition)
     targetPos.current = latLonToVector3(aircraft.position.latitude, aircraft.position.longitude, aircraft.position.altitude);
     targetQuat.current = getAircraftOrientation(aircraft.position.latitude, aircraft.position.longitude, aircraft.position.heading);
-  }, [aircraft.position.latitude, aircraft.position.longitude, aircraft.position.altitude, aircraft.position.heading]);
+  }, [aircraft.position.latitude, aircraft.position.longitude, aircraft.position.altitude, aircraft.position.heading, aircraft.position.speed]);
+  
+  // Ref for sync marker group and label
+  const syncMarkerRef = useRef<THREE.Group>(null);
+  const syncLabelRef = useRef<HTMLSpanElement>(null);
   
   useFrame((state, delta) => {
     if (!groupRef.current) return;
     
-    // Smooth position interpolation - matches 15 second API update interval
-    // Factor of delta * 0.2 gives smooth ~15 second transition to target
-    const posSmoothFactor = Math.min(delta * 0.2, 0.02);
-    currentPos.current.lerp(targetPos.current, posSmoothFactor);
-    groupRef.current.position.copy(currentPos.current);
+    // Dead reckoning: predict position based on elapsed time since last server update
+    const elapsedSeconds = (Date.now() - lastServerTime.current) / 1000;
+    
+    // Predict new position if plane is moving (speed > 10 knots)
+    if (lastServerSpeed.current > 10 && elapsedSeconds < 120) {
+      const predicted = predictPosition(
+        lastServerLat.current,
+        lastServerLon.current,
+        lastServerHeading.current,
+        lastServerSpeed.current,
+        elapsedSeconds
+      );
+      
+      // Directly set position to predicted (no lerping for prediction)
+      const predictedPos = latLonToVector3(predicted.lat, predicted.lon, lastServerAlt.current);
+      groupRef.current.position.copy(predictedPos);
+      currentPos.current.copy(predictedPos);
+    } else {
+      // Stationary planes: just use server position
+      groupRef.current.position.copy(targetPos.current);
+      currentPos.current.copy(targetPos.current);
+    }
+    
+    // Update sync marker to show last server position
+    // Show when: selected (always) OR hovered (when not selected)
+    const showSyncMarker = isSelected || isHovered;
+    
+    if (syncMarkerRef.current && lastServerSpeed.current > 10) {
+      const serverPos = latLonToVector3(lastServerLat.current, lastServerLon.current, lastServerAlt.current);
+      const serverQuat = getAircraftOrientation(lastServerLat.current, lastServerLon.current, lastServerHeading.current);
+      syncMarkerRef.current.position.copy(serverPos);
+      syncMarkerRef.current.quaternion.copy(serverQuat);
+      syncMarkerRef.current.visible = showSyncMarker;
+    }
+    
+    // Update sync label with time ago
+    if (syncLabelRef.current) {
+      if (showSyncMarker) {
+        const mins = Math.floor(elapsedSeconds / 60);
+        const secs = Math.floor(elapsedSeconds % 60);
+        syncLabelRef.current.textContent = mins > 0 ? `synced ${mins}m ${secs}s ago` : `synced ${secs}s ago`;
+      } else {
+        syncLabelRef.current.textContent = '';
+      }
+    }
     
     // Smooth rotation interpolation - slightly faster than position for responsive heading
     const rotSmoothFactor = Math.min(delta * 0.3, 0.03);
@@ -292,22 +383,46 @@ export function AircraftDot({ aircraft, onClick }: { aircraft: Aircraft; onClick
   };
   
   return (
-    <group
-      ref={groupRef}
-      onClick={(e) => { e.stopPropagation(); onClick?.(); }}
-      onPointerOver={(e) => { e.stopPropagation(); hoverEntity({ type: 'aircraft', id: aircraft.id }); document.body.style.cursor = 'pointer'; }}
-      onPointerOut={() => { hoverEntity(null); document.body.style.cursor = 'auto'; }}
-    >
-      {/* Only show hitbox in detailed paper airplane mode for performance */}
-      {!useSimpleMode && (
-        <mesh geometry={hitboxGeometry}>
-          <meshBasicMaterial transparent opacity={0} side={THREE.DoubleSide} />
+    <>
+      {/* Sync marker - small solid blue triangle at last server position */}
+      <group ref={syncMarkerRef} visible={false}>
+        <mesh geometry={triangleGeometry} scale={0.3}>
+          <meshBasicMaterial color="#00aaff" side={THREE.DoubleSide} />
         </mesh>
-      )}
-      {/* LOD: Show simple 2D triangle or detailed paper airplane based on aircraft count */}
-      <mesh ref={meshRef} geometry={useSimpleMode ? triangleGeometry : planeGeometry}>
-        <meshBasicMaterial color={getColor()} side={THREE.DoubleSide} transparent />
-      </mesh>
-    </group>
+        <Html center style={{ pointerEvents: 'none' }}>
+          <span
+            ref={syncLabelRef}
+            style={{
+              fontFamily: 'monospace',
+              fontSize: '8px',
+              color: '#00aaff',
+              whiteSpace: 'nowrap',
+              textShadow: '0 0 2px black, 0 0 4px black',
+              marginTop: '12px',
+              display: 'block',
+            }}
+          />
+        </Html>
+      </group>
+      
+      {/* Predicted aircraft position - translucent green */}
+      <group
+        ref={groupRef}
+        onClick={(e) => { e.stopPropagation(); onClick?.(); }}
+        onPointerOver={(e) => { e.stopPropagation(); hoverEntity({ type: 'aircraft', id: aircraft.id }); document.body.style.cursor = 'pointer'; }}
+        onPointerOut={() => { hoverEntity(null); document.body.style.cursor = 'auto'; }}
+      >
+        {/* Only show hitbox in detailed paper airplane mode for performance */}
+        {!useSimpleMode && (
+          <mesh geometry={hitboxGeometry}>
+            <meshBasicMaterial transparent opacity={0} side={THREE.DoubleSide} />
+          </mesh>
+        )}
+        {/* LOD: Show simple 2D triangle or detailed paper airplane based on aircraft count */}
+        <mesh ref={meshRef} geometry={useSimpleMode ? triangleGeometry : planeGeometry}>
+          <meshBasicMaterial color={getColor()} side={THREE.DoubleSide} transparent opacity={0.3} />
+        </mesh>
+      </group>
+    </>
   );
 }

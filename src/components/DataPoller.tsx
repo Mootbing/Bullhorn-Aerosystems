@@ -39,6 +39,30 @@ function generateMockData(bounds: ViewportBounds | null, count: number = 50) {
   return aircraft;
 }
 
+// Debug supersonic aircraft - always visible for testing prediction
+function createSupersonicDebugAircraft() {
+  return {
+    id: 'debug_supersonic_sr71',
+    callsign: 'SR71DBG',
+    type: 'SR-71',
+    position: {
+      latitude: 40.7128, // New York
+      longitude: -74.006,
+      altitude: 85000, // 85,000 ft - SR-71 cruise altitude
+      heading: 45, // Northeast
+      speed: 1900, // ~Mach 3
+      verticalRate: 0,
+      geoAltitude: 85000,
+    },
+    timestamp: Date.now(),
+    originCountry: 'United States',
+    onGround: false,
+    squawk: '7777',
+    positionSource: 0,
+    lastContact: Date.now() / 1000,
+  };
+}
+
 // Normalize longitude to -180 to 180 range
 function normalizeLon(lon: number): number {
   while (lon > 180) lon -= 360;
@@ -192,8 +216,15 @@ export function DataPoller() {
         // Update cache
         cachedAircraft.current = mergedAircraft;
         
-        // Convert to array for store
+        // Convert to array for store, add debug supersonic aircraft
         const aircraftArray = Array.from(mergedAircraft.values());
+        
+        // Always add supersonic debug aircraft
+        const debugAircraft = createSupersonicDebugAircraft();
+        const existingDebugIdx = aircraftArray.findIndex(a => a.id === debugAircraft.id);
+        if (existingDebugIdx === -1) {
+          aircraftArray.push(debugAircraft);
+        }
         
         if (aircraftArray.length > 0) {
           setAircraft(aircraftArray);
@@ -209,7 +240,9 @@ export function DataPoller() {
       // Once we have any data (real or mock), don't replace it on API failure
       if (aircraft.length === 0) {
         console.log('[DataPoller] No data available, using mock data as fallback');
-        setAircraft(generateMockData(bounds));
+        const mockData = generateMockData(bounds);
+        mockData.push(createSupersonicDebugAircraft());
+        setAircraft(mockData);
       } else {
         console.log('[DataPoller] Keeping existing', aircraft.length, 'aircraft');
       }

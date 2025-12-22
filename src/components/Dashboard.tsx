@@ -196,7 +196,7 @@ export function Dashboard() {
           {/* Right: Hints & Version */}
           <div className="text-right">
             <div className="text-[8px] text-[#444]">arrow keys to navigate</div>
-            <div className="text-[8px] text-[#444]">cowlantir aerosystems v1.2</div>
+            <div className="text-[8px] text-[#444]">bullantir aerosystems v1.2</div>
           </div>
         </div>
       </div>

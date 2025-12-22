@@ -54,6 +54,25 @@ function latLonToVector3(lat: number, lon: number, alt: number = 0): THREE.Vecto
   );
 }
 
+// Predict position based on speed (knots) and heading after elapsed time (seconds)
+function predictPosition(
+  lat: number,
+  lon: number,
+  heading: number,
+  speedKnots: number,
+  elapsedSeconds: number
+): { lat: number; lon: number } {
+  const kmPerHour = speedKnots * 1.852;
+  const kmPerSecond = kmPerHour / 3600;
+  const earthCircumferenceKm = 2 * Math.PI * 6371;
+  const distanceDegreesEquator = (kmPerSecond * elapsedSeconds / earthCircumferenceKm) * 360;
+  const headingRad = heading * (Math.PI / 180);
+  const newLat = lat + distanceDegreesEquator * Math.cos(headingRad);
+  const lonScale = Math.cos(lat * Math.PI / 180);
+  const newLon = lon + (distanceDegreesEquator * Math.sin(headingRad)) / Math.max(0.1, lonScale);
+  return { lat: newLat, lon: newLon };
+}
+
 export function CameraController() {
   const controlsRef = useRef<any>(null);
   const { camera } = useThree();
@@ -88,6 +107,16 @@ export function CameraController() {
   const currentCameraOffset = useRef(new THREE.Vector3());
   
   const prevSelectedId = useRef<string | null>(null);
+  
+  // Track last server update for selected aircraft prediction
+  const lastServerData = useRef<{
+    lat: number;
+    lon: number;
+    alt: number;
+    heading: number;
+    speed: number;
+    time: number;
+  } | null>(null);
   const isReturningToEarth = useRef(false);
   const hasInitializedLocation = useRef(false);
   const [initialLocation, setInitialLocation] = useState<{ lat: number; lon: number } | null>(null);
@@ -96,63 +125,19 @@ export function CameraController() {
   const savedCameraPosition = useRef(new THREE.Vector3());
   const savedCameraTarget = useRef(new THREE.Vector3());
   
-  // Shift key for orbit mode
+  // Shift key tracking (for chase view to know when to pause following)
   const isShiftHeld = useRef(false);
-  const orbitTarget = useRef(new THREE.Vector3(0, 0, 0));
-  const raycaster = useRef(new THREE.Raycaster());
-  const globeSphere = useRef(new THREE.Sphere(new THREE.Vector3(0, 0, 0), 1));
   
-  // Track Shift key for orbit mode (works in both normal and focused modes)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Shift' && !isShiftHeld.current && controlsRef.current) {
+      if (e.key === 'Shift') {
         isShiftHeld.current = true;
-        
-        // In focused mode: orbit around the aircraft
-        const currentSelectedEntity = useRadarStore.getState().gameState.selectedEntity;
-        const currentSelectedId = currentSelectedEntity?.type === 'aircraft' ? currentSelectedEntity.id : null;
-        if (currentSelectedId) {
-          const currentAircraft = useRadarStore.getState().aircraft.find(a => a.id === currentSelectedId);
-          if (currentAircraft) {
-            const aircraftPos = latLonToVector3(
-              currentAircraft.position.latitude,
-              currentAircraft.position.longitude,
-              currentAircraft.position.altitude
-            );
-            orbitTarget.current.copy(aircraftPos);
-            controlsRef.current.target.copy(aircraftPos);
-            controlsRef.current.update();
-            return;
-          }
-        }
-        
-        // Not focused: orbit around point on globe we're looking at
-        const cameraDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-        raycaster.current.set(camera.position, cameraDir);
-        
-        const intersectPoint = new THREE.Vector3();
-        const hasIntersection = raycaster.current.ray.intersectSphere(globeSphere.current, intersectPoint);
-        
-        if (hasIntersection) {
-          orbitTarget.current.copy(intersectPoint);
-          controlsRef.current.target.copy(intersectPoint);
-        } else {
-          const closestPoint = camera.position.clone().normalize();
-          orbitTarget.current.copy(closestPoint);
-          controlsRef.current.target.copy(closestPoint);
-        }
-        controlsRef.current.update();
       }
     };
     
     const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.key === 'Shift' && isShiftHeld.current && controlsRef.current) {
+      if (e.key === 'Shift') {
         isShiftHeld.current = false;
-        
-        // Return to free rotation (target = center)
-        controlsRef.current.target.set(0, 0, 0);
-        currentTarget.current.set(0, 0, 0);
-        controlsRef.current.update();
       }
     };
     
@@ -163,7 +148,7 @@ export function CameraController() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [camera]);
+  }, []);
   
   // Get user's location on mount
   useEffect(() => {
@@ -362,6 +347,17 @@ export function CameraController() {
         
         const { latitude, longitude, altitude, heading, speed } = selectedAircraft.position;
         
+        // Store server data for prediction and reset camera offset
+        lastServerData.current = {
+          lat: latitude,
+          lon: longitude,
+          alt: altitude,
+          heading,
+          speed,
+          time: Date.now(),
+        };
+        currentCameraOffset.current.set(0, 0, 0); // Reset so it gets calculated fresh
+        
         const aircraftPos = latLonToVector3(latitude, longitude, altitude);
         
         // Get aircraft forward direction and up vector
@@ -388,11 +384,36 @@ export function CameraController() {
       }
     }
     
+    // Update server data when aircraft data updates
+    if (selectedId) {
+      const selectedAircraft = aircraft.find(a => a.id === selectedId);
+      if (selectedAircraft) {
+        const { latitude, longitude, altitude, heading, speed } = selectedAircraft.position;
+        // Only update if position actually changed (new server data)
+        if (lastServerData.current &&
+            (lastServerData.current.lat !== latitude ||
+             lastServerData.current.lon !== longitude)) {
+          lastServerData.current = {
+            lat: latitude,
+            lon: longitude,
+            alt: altitude,
+            heading,
+            speed,
+            time: Date.now(),
+          };
+        }
+      }
+    }
+    
     if (!selectedId && prevSelectedId.current && controlsRef.current) {
       // Deselected - animate back to the saved camera position
       isAnimating.current = true;
       isReturningToEarth.current = true;
       animationProgress.current = 0;
+      
+      // Clear chase view data
+      lastServerData.current = null;
+      currentCameraOffset.current.set(0, 0, 0);
       
       startPosition.current.copy(camera.position);
       startTarget.current.copy(controlsRef.current.target);
@@ -466,6 +487,38 @@ export function CameraController() {
           animationPhase.current = 'direct';
         }
       }
+    } else if (selectedId && lastServerData.current && !isShiftHeld.current) {
+      // Chase view: continuously follow predicted aircraft position
+      const { lat, lon, alt, heading, speed, time } = lastServerData.current;
+      const elapsedSeconds = (Date.now() - time) / 1000;
+      
+      // Calculate predicted position with altitude prediction from V/S
+      let predictedLat = lat;
+      let predictedLon = lon;
+      
+      if (speed > 10 && elapsedSeconds < 120) {
+        const predicted = predictPosition(lat, lon, heading, speed, elapsedSeconds);
+        predictedLat = predicted.lat;
+        predictedLon = predicted.lon;
+      }
+      
+      const predictedAircraftPos = latLonToVector3(predictedLat, predictedLon, alt);
+      
+      // Get current camera offset from aircraft (preserve user's viewing angle)
+      if (currentCameraOffset.current.lengthSq() === 0) {
+        currentCameraOffset.current.copy(camera.position).sub(predictedAircraftPos);
+      }
+      
+      // Update the offset to maintain relative position as aircraft moves
+      // This makes the camera follow the plane smoothly
+      const targetCamPos = predictedAircraftPos.clone().add(currentCameraOffset.current);
+      
+      // Directly set camera position (faster follow)
+      camera.position.copy(targetCamPos);
+      
+      // Update look-at to predicted position
+      controlsRef.current.target.copy(predictedAircraftPos);
+      currentTarget.current.copy(predictedAircraftPos);
     } else {
       const distFromCenter = camera.position.length();
       if (distFromCenter < MIN_CAMERA_DISTANCE) {
@@ -474,11 +527,7 @@ export function CameraController() {
     }
     
     // Adjust rotation sensitivity based on zoom level
-    // Slower when zoomed in, faster when zoomed out
     const cameraDistance = camera.position.length();
-    // At distance 1.05 (very close): rotateSpeed = 0.1 (slow)
-    // At distance 2.5 (default): rotateSpeed = 0.4
-    // At distance 5 (far): rotateSpeed = 0.8 (fast)
     const zoomBasedRotateSpeed = Math.max(0.08, Math.min(0.8, (cameraDistance - 1) * 0.2));
     controlsRef.current.rotateSpeed = zoomBasedRotateSpeed;
     

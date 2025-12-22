@@ -1,9 +1,35 @@
 'use client';
 
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect, useMemo } from 'react';
 import { useRadarStore, Aircraft, Airport } from '@/store/gameStore';
 import { EntityRef, getEntityTypeName } from '@/types/entities';
 import { ScrollingText } from '../ScrollingText';
+
+// Predict position based on speed (knots) and heading after elapsed time (seconds)
+function predictPosition(
+  lat: number,
+  lon: number,
+  heading: number,
+  speedKnots: number,
+  elapsedSeconds: number
+): { lat: number; lon: number } {
+  const kmPerHour = speedKnots * 1.852;
+  const kmPerSecond = kmPerHour / 3600;
+  const earthCircumferenceKm = 2 * Math.PI * 6371;
+  const distanceDegreesEquator = (kmPerSecond * elapsedSeconds / earthCircumferenceKm) * 360;
+  const headingRad = heading * (Math.PI / 180);
+  const newLat = lat + distanceDegreesEquator * Math.cos(headingRad);
+  const lonScale = Math.cos(lat * Math.PI / 180);
+  const newLon = lon + (distanceDegreesEquator * Math.sin(headingRad)) / Math.max(0.1, lonScale);
+  return { lat: newLat, lon: newLon };
+}
+
+// Predict altitude based on vertical rate (ft/min) and elapsed time
+function predictAltitude(altitude: number, verticalRate: number | undefined, elapsedSeconds: number): number {
+  if (!verticalRate || Math.abs(verticalRate) < 50) return altitude; // Ignore small V/S
+  const altChange = (verticalRate / 60) * elapsedSeconds; // ft/min to ft/s
+  return Math.max(0, altitude + altChange);
+}
 
 // ============================================================================
 // SHARED COMPONENTS
@@ -85,6 +111,72 @@ function AircraftInfoContent({
   aircraft: Aircraft; 
   glowColor: 'green' | 'yellow';
 }) {
+  // Track last server data for prediction
+  const lastServerData = useRef({
+    lat: aircraft.position.latitude,
+    lon: aircraft.position.longitude,
+    alt: aircraft.position.altitude,
+    geoAlt: aircraft.position.geoAltitude,
+    heading: aircraft.position.heading,
+    speed: aircraft.position.speed,
+    verticalRate: aircraft.position.verticalRate,
+    time: Date.now(),
+  });
+  
+  // State for predicted values (updates frequently)
+  const [predicted, setPredicted] = useState({
+    lat: aircraft.position.latitude,
+    lon: aircraft.position.longitude,
+    alt: aircraft.position.altitude,
+    geoAlt: aircraft.position.geoAltitude,
+  });
+  
+  // Hover state to show last synced values instead of predicted
+  const [showLastSyncedPosition, setShowLastSyncedPosition] = useState(false);
+  const [showLastSyncedAltitude, setShowLastSyncedAltitude] = useState(false);
+  
+  // Update server data when aircraft position changes
+  useEffect(() => {
+    const { latitude, longitude, altitude, geoAltitude, heading, speed, verticalRate } = aircraft.position;
+    if (lastServerData.current.lat !== latitude || lastServerData.current.lon !== longitude) {
+      lastServerData.current = {
+        lat: latitude,
+        lon: longitude,
+        alt: altitude,
+        geoAlt: geoAltitude,
+        heading,
+        speed,
+        verticalRate,
+        time: Date.now(),
+      };
+    }
+  }, [aircraft.position.latitude, aircraft.position.longitude, aircraft.position.altitude, aircraft.position.geoAltitude, aircraft.position.heading, aircraft.position.speed, aircraft.position.verticalRate]);
+  
+  // Update predicted values every 100ms
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const { lat, lon, alt, geoAlt, heading, speed, verticalRate, time } = lastServerData.current;
+      const elapsedSeconds = (Date.now() - time) / 1000;
+      
+      if (speed > 10 && elapsedSeconds < 120) {
+        const predictedPos = predictPosition(lat, lon, heading, speed, elapsedSeconds);
+        const predictedAlt = predictAltitude(alt, verticalRate, elapsedSeconds);
+        const predictedGeoAlt = geoAlt ? predictAltitude(geoAlt, verticalRate, elapsedSeconds) : undefined;
+        
+        setPredicted({
+          lat: predictedPos.lat,
+          lon: predictedPos.lon,
+          alt: predictedAlt,
+          geoAlt: predictedGeoAlt,
+        });
+      } else {
+        setPredicted({ lat, lon, alt, geoAlt });
+      }
+    }, 100);
+    
+    return () => clearInterval(interval);
+  }, []);
+  
   return (
     <div className="space-y-3">
       {/* Header - Callsign & ICAO */}
@@ -122,21 +214,55 @@ function AircraftInfoContent({
         {aircraft.spi && <span className="text-[#ff4444] animate-pulse">SPI</span>}
       </div>
       
-      {/* Position Section */}
+      {/* Position Section - Hover to show last synced */}
       <div className="border-t border-[#1a1a1a] pt-2">
-        <div className="text-[#444] text-[9px] tracking-wider mb-1">POSITION</div>
+        <div 
+          className="text-[#444] text-[9px] tracking-wider mb-1 cursor-pointer select-none"
+          onMouseEnter={() => setShowLastSyncedPosition(true)}
+          onMouseLeave={() => setShowLastSyncedPosition(false)}
+        >
+          POSITION {showLastSyncedPosition 
+            ? <span className="text-[#00aaff]">(LAST SYNCED)</span>
+            : <span className="text-[#00ff88]">(PREDICTED)</span>
+          }
+        </div>
         <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
-          <DataRow label="LAT" value={formatCoord(aircraft.position.latitude, true)} glowColor={glowColor} />
-          <DataRow label="LON" value={formatCoord(aircraft.position.longitude, false)} glowColor={glowColor} />
+          <DataRow 
+            label="LAT" 
+            value={formatCoord(showLastSyncedPosition ? lastServerData.current.lat : predicted.lat, true)} 
+            glowColor={showLastSyncedPosition ? 'blue' : glowColor} 
+          />
+          <DataRow 
+            label="LON" 
+            value={formatCoord(showLastSyncedPosition ? lastServerData.current.lon : predicted.lon, false)} 
+            glowColor={showLastSyncedPosition ? 'blue' : glowColor} 
+          />
         </div>
       </div>
       
-      {/* Altitude Section */}
+      {/* Altitude Section - Hover to show last synced */}
       <div className="border-t border-[#1a1a1a] pt-2">
-        <div className="text-[#444] text-[9px] tracking-wider mb-1">ALTITUDE</div>
+        <div 
+          className="text-[#444] text-[9px] tracking-wider mb-1 cursor-pointer select-none"
+          onMouseEnter={() => setShowLastSyncedAltitude(true)}
+          onMouseLeave={() => setShowLastSyncedAltitude(false)}
+        >
+          ALTITUDE {showLastSyncedAltitude 
+            ? <span className="text-[#00aaff]">(LAST SYNCED)</span>
+            : <span className="text-[#00ff88]">(PREDICTED)</span>
+          }
+        </div>
         <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
-          <DataRow label="BARO" value={formatAltitude(aircraft.position.altitude)} glowColor={glowColor} />
-          <DataRow label="GPS" value={formatAltitude(aircraft.position.geoAltitude)} glowColor={glowColor} />
+          <DataRow 
+            label="BARO" 
+            value={formatAltitude(showLastSyncedAltitude ? lastServerData.current.alt : predicted.alt)} 
+            glowColor={showLastSyncedAltitude ? 'blue' : glowColor} 
+          />
+          <DataRow 
+            label="GPS" 
+            value={formatAltitude(showLastSyncedAltitude ? lastServerData.current.geoAlt : predicted.geoAlt)} 
+            glowColor={showLastSyncedAltitude ? 'blue' : glowColor} 
+          />
           <DataRow label="V/S" value={formatVerticalRate(aircraft.position.verticalRate)} glowColor={glowColor} />
         </div>
       </div>
