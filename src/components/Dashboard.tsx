@@ -1,6 +1,6 @@
 'use client';
 
-import { useRadarStore, Aircraft } from '@/store/gameStore';
+import { useRadarStore, Aircraft, Airport } from '@/store/gameStore';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { ScrollingText } from './ScrollingText';
 import { SearchBar } from './SearchBar';
@@ -176,13 +176,25 @@ function FlightTicket({ callsign, icao24 }: { callsign: string; icao24: string }
   );
 }
 
-function TrackInfoPanel({ aircraft, isHovering, isSelected, onClose }: { aircraft: Aircraft | undefined; isHovering: boolean; isSelected: boolean; onClose: () => void }) {
+function TrackInfoPanel({ 
+  aircraft, 
+  isHovering, 
+  isSelected, 
+  isHoveringDifferentPlane,
+  onSwitch 
+}: { 
+  aircraft: Aircraft | undefined; 
+  isHovering: boolean; 
+  isSelected: boolean; 
+  isHoveringDifferentPlane: boolean;
+  onSwitch: () => void;
+}) {
   const contentRef = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState(0);
   const prevAircraftRef = useRef<Aircraft | undefined>(undefined);
   
   useEffect(() => {
-    if (contentRef.current) {
+    if (contentRef.current && aircraft) {
       setHeight(contentRef.current.scrollHeight);
     }
   }, [aircraft, isHovering]);
@@ -192,34 +204,59 @@ function TrackInfoPanel({ aircraft, isHovering, isSelected, onClose }: { aircraf
     prevAircraftRef.current = aircraft;
   }, [aircraft]);
 
-  const glowColor = 'yellow' as const;
+  // Use yellow glow when hovering a different plane while one is tracked
+  const glowColor = isHoveringDifferentPlane ? 'yellow' as const : 'green' as const;
+  const hasContent = aircraft !== undefined;
 
   return (
     <div 
-      className={'bg-black/90 border min-w-[280px] transition-all duration-300 ease-out overflow-hidden ' + 
-        (isHovering ? 'border-[#ffaa00]/50' : 'border-[#1a1a1a]')}
+      className={'bg-black/90 min-w-[280px] transition-all duration-300 ease-out border-[#1a1a1a] ' + 
+        (hasContent ? 'border ' : 'border-0 ') +
+        (isHovering ? 'border-dashed' : 'border-solid')}
+      style={{ 
+        maxHeight: hasContent ? '600px' : '0px',
+        opacity: hasContent ? 1 : 0,
+        overflow: 'hidden',
+      }}
     >
-      <div 
-        className={'border-b px-3 py-2 text-[10px] transition-colors duration-300 flex justify-between items-center ' + 
-          (isHovering ? 'border-[#ffaa00]/50 text-[#ffaa00]' : 'border-[#1a1a1a] text-[#666]')}
-      >
-        <span>TRACK_INFO {isHovering && <span className="text-[#888]">(HOVER)</span>}</span>
-        {isSelected && (
-          <button 
-            onClick={onClose}
-            className="text-[#ff4444] hover:text-[#ff6666] hover:bg-[#ff4444]/10 px-1.5 transition-colors"
+      {hasContent && (
+        <>
+          <div 
+            className={'border-b border-[#1a1a1a] px-3 py-2 text-[10px] text-[#666] transition-colors duration-300 flex justify-between items-center ' + 
+              (isHovering ? 'border-dashed' : 'border-solid')}
           >
-            [UNFOLLOW]
-          </button>
-        )}
-      </div>
-      <div 
-        className="transition-[height] duration-300 ease-out"
-        style={{ height: aircraft ? height : 28 }}
-      >
-        <div ref={contentRef} className="p-3 text-[10px]">
-          {aircraft ? (
-            <div className="space-y-3">
+            <span>TRACK_INFO</span>
+            <div className="flex items-center gap-2">
+              {/* Hovering a plane (not tracking anything) - yellow ENTER to track */}
+              {isHovering && !isSelected && (
+                <span className="text-[#ffaa00]">[ENTER]</span>
+              )}
+              {/* Tracking a plane and hovering a different one - yellow ENTER to switch */}
+              {isSelected && isHoveringDifferentPlane && (
+                <button 
+                  onClick={onSwitch}
+                  className="text-[#ffaa00] hover:text-[#ffcc00] hover:bg-[#ffaa00]/10 px-1.5 transition-colors"
+                >
+                  [ENTER]
+                </button>
+              )}
+              {/* Tracking a plane (not hovering another) - show ESC to cancel */}
+              {isSelected && !isHoveringDifferentPlane && (
+                <button 
+                  onClick={onSwitch}
+                  className="text-[#ff4444] hover:text-[#ff6666] hover:bg-[#ff4444]/10 px-1.5 transition-colors"
+                >
+                  [ESC]
+                </button>
+              )}
+            </div>
+          </div>
+          <div 
+            className="transition-[height] duration-300 ease-out"
+            style={{ height: height || 'auto' }}
+          >
+            <div ref={contentRef} className="p-3 text-[10px]">
+              <div className="space-y-3">
               {/* Header - Callsign & ICAO */}
               <div className="flex items-baseline justify-between border-b border-[#1a1a1a] pb-2">
                 <div>
@@ -296,17 +333,69 @@ function TrackInfoPanel({ aircraft, isHovering, isSelected, onClose }: { aircraf
                 <span className="text-[#444]">LAST: <ScrollingText text={formatLastContact(aircraft.lastContact)} className="text-[#666]" glowColor={glowColor} /></span>
               </div>
             </div>
-          ) : (
-            <p className="text-[#444]">// HOVER_OR_SELECT_TRACK</p>
-          )}
+          </div>
         </div>
-      </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function AirportInfoPanel({ airport }: { airport: Airport | undefined }) {
+  const hasContent = airport !== undefined;
+  
+  return (
+    <div 
+      className={'bg-black/90 min-w-[280px] transition-all duration-300 ease-out border border-dashed border-[#1a1a1a]'}
+      style={{ 
+        maxHeight: hasContent ? '300px' : '0px',
+        opacity: hasContent ? 1 : 0,
+        overflow: 'hidden',
+      }}
+    >
+      {hasContent && (
+        <>
+          <div className="border-b border-dashed border-[#1a1a1a] px-3 py-2 text-[10px] text-[#666] flex justify-between items-center">
+            <span>AIRPORT_INFO</span>
+          </div>
+          <div className="p-3 text-[10px]">
+            <div className="space-y-2">
+              {/* Header - ICAO & IATA */}
+              <div className="flex items-baseline justify-between border-b border-[#1a1a1a] pb-2">
+                <div>
+                  <div className="text-white font-medium text-sm">
+                    <ScrollingText text={airport.iata || airport.icao} glowColor="green" />
+                  </div>
+                  <div className="text-[#666] text-[9px]">
+                    <ScrollingText text={airport.name} glowColor="green" />
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-[#00ff88] font-mono">
+                    <ScrollingText text={airport.icao} glowColor="green" />
+                  </div>
+                  <div className="text-[#444] text-[9px]">ICAO</div>
+                </div>
+              </div>
+              
+              {/* Location */}
+              <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+                <DataRow label="CITY" value={airport.city || 'N/A'} glowColor="green" />
+                <DataRow label="COUNTRY" value={airport.country || 'N/A'} glowColor="green" />
+                <DataRow label="ELEV" value={airport.elevation ? `${Math.round(airport.elevation)} ft` : 'N/A'} glowColor="green" />
+                <DataRow label="TYPE" value={airport.type.replace('_', ' ').toUpperCase()} glowColor="green" />
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
 export function Dashboard() {
   const aircraft = useRadarStore((state) => state.aircraft);
+  const airports = useRadarStore((state) => state.airports);
   const gameState = useRadarStore((state) => state.gameState);
   const isPolling = useRadarStore((state) => state.isPolling);
   const selectAircraft = useRadarStore((state) => state.selectAircraft);
@@ -314,31 +403,60 @@ export function Dashboard() {
   // Show hovered aircraft, fall back to selected
   const displayAircraftId = gameState.hoveredAircraft || gameState.selectedAircraft;
   const displayAircraft = aircraft.find((a) => a.id === displayAircraftId);
-  const isHovering = gameState.hoveredAircraft !== null;
+  const isHoveringAircraft = gameState.hoveredAircraft !== null;
+  
+  // Show hovered airport
+  const displayAirport = gameState.hoveredAirport 
+    ? airports.find((a) => a.icao === gameState.hoveredAirport) 
+    : undefined;
+  const isHoveringAirport = gameState.hoveredAirport !== null;
+  
+  // Detect when hovering a different plane while one is tracked
+  const isHoveringDifferentPlane = gameState.selectedAircraft !== null && 
+    gameState.hoveredAircraft !== null && 
+    gameState.hoveredAircraft !== gameState.selectedAircraft;
 
   const handleClosePanel = useCallback(() => {
     selectAircraft(null);
   }, [selectAircraft]);
+  
+  // Handle switching to hovered plane or closing
+  const handleSwitchOrClose = useCallback(() => {
+    if (isHoveringDifferentPlane && gameState.hoveredAircraft) {
+      // Switch to the hovered plane
+      selectAircraft(gameState.hoveredAircraft);
+    } else {
+      // Just close/untrack
+      selectAircraft(null);
+    }
+  }, [isHoveringDifferentPlane, gameState.hoveredAircraft, selectAircraft]);
 
-  // ESC key to unfollow
+  // Keyboard shortcuts: ESC to unfollow, ENTER to track/switch hovered plane
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger if typing in an input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+      
       if (e.key === 'Escape') {
         handleClosePanel();
+      } else if (e.key === 'Enter' && gameState.hoveredAircraft) {
+        // Track or switch to the hovered plane when Enter is pressed
+        selectAircraft(gameState.hoveredAircraft);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleClosePanel]);
+  }, [handleClosePanel, gameState.hoveredAircraft, selectAircraft]);
 
   return (
     <div className="absolute inset-0 pointer-events-none font-mono">
       <div className="absolute top-0 left-0 right-0 p-4 border-b border-[#1a1a1a] bg-black/50 backdrop-blur-sm">
         <div className="flex items-center justify-between">
           <div className="pointer-events-auto">
-            <span className="text-[#666] text-[10px] tracking-[0.2em]">SYSTEM</span>
             <h1 className="text-sm font-medium text-white">
-              COWLANTIR<span className="text-[#333]">//</span><span className="text-[#00ff88]">RADAR</span><span className="text-[#333]">//</span><span className="text-[#666]">v0.1.0</span>
+              COWLANTIR RADAR SYSTEMS<span className="text-[#333]">//</span><span className="text-[#666]">v0.0.1</span>
             </h1>
           </div>
           <div className="pointer-events-auto">
@@ -355,11 +473,22 @@ export function Dashboard() {
       </div>
       
       <div className="absolute bottom-4 left-4 pointer-events-auto">
-        <SearchBar />
+        {/* Show airport info when hovering airport, otherwise show aircraft info */}
+        {isHoveringAirport ? (
+          <AirportInfoPanel airport={displayAirport} />
+        ) : (
+          <TrackInfoPanel 
+            aircraft={displayAircraft} 
+            isHovering={isHoveringAircraft} 
+            isSelected={gameState.selectedAircraft !== null} 
+            isHoveringDifferentPlane={isHoveringDifferentPlane}
+            onSwitch={handleSwitchOrClose} 
+          />
+        )}
       </div>
       
       <div className="absolute bottom-4 right-4 pointer-events-auto">
-        <TrackInfoPanel aircraft={displayAircraft} isHovering={isHovering} isSelected={gameState.selectedAircraft !== null} onClose={handleClosePanel} />
+        <SearchBar />
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useThree, useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useRadarStore, Aircraft } from '@/store/gameStore';
@@ -19,20 +19,53 @@ function latLonToVector3(lat: number, lon: number, alt: number = 0): THREE.Vecto
   );
 }
 
+// Grace period before deloading out-of-view aircraft (ms)
+const DELOAD_GRACE_PERIOD = 5000;
+// How often to check for aircraft to deload (ms)
+const DELOAD_CHECK_INTERVAL = 2000;
+
 export function AircraftLayer() {
   const aircraft = useRadarStore((state) => state.aircraft);
   const selectAircraft = useRadarStore((state) => state.selectAircraft);
+  const removeAircraft = useRadarStore((state) => state.removeAircraft);
   const hoveredAircraft = useRadarStore((state) => state.gameState.hoveredAircraft);
   const selectedAircraft = useRadarStore((state) => state.gameState.selectedAircraft);
   const { camera } = useThree();
   
   const displayPathFor = hoveredAircraft || selectedAircraft;
   
+  // Refs to track current selection/hover for use in useFrame (avoids stale closures)
+  const selectedRef = useRef<string | null>(null);
+  const hoveredRef = useRef<string | null>(null);
+  selectedRef.current = selectedAircraft;
+  hoveredRef.current = hoveredAircraft;
+  
   // Visible aircraft state - updated on camera move
   const [visibleAircraft, setVisibleAircraft] = useState<Aircraft[]>([]);
   const lastUpdateTime = useRef(0);
   const frustum = useRef(new THREE.Frustum());
   const projScreenMatrix = useRef(new THREE.Matrix4());
+  
+  // Track when aircraft left the viewport for deloading
+  const outOfViewSince = useRef<Map<string, number>>(new Map());
+  const visibleIds = useRef<Set<string>>(new Set());
+  
+  // Check visibility of an aircraft
+  const isAircraftVisible = (ac: Aircraft, cameraDir: THREE.Vector3, cameraPos: THREE.Vector3): boolean => {
+    const pos = latLonToVector3(ac.position.latitude, ac.position.longitude, ac.position.altitude);
+    
+    // Check if position is in camera frustum
+    if (!frustum.current.containsPoint(pos)) {
+      return false;
+    }
+    
+    // Check if aircraft is on the visible side of the globe (not behind it)
+    const toAircraft = pos.clone().sub(cameraPos);
+    const dotProduct = toAircraft.normalize().dot(cameraDir);
+    
+    // Only show if roughly in front of camera (dot > -0.3 allows some peripheral vision)
+    return dotProduct > -0.3;
+  };
   
   // Update visible aircraft when camera moves (throttled)
   useFrame((state) => {
@@ -49,26 +82,34 @@ export function AircraftLayer() {
     const cameraDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
     const cameraPos = camera.position;
     
+    const nowMs = Date.now();
+    const newVisibleIds = new Set<string>();
+    
     const visible = aircraft.filter((ac) => {
-      // Always keep selected/hovered aircraft visible
-      if (ac.id === selectedAircraft || ac.id === hoveredAircraft) {
+      // Always keep selected/hovered aircraft visible (use refs to get current values)
+      if (ac.id === selectedRef.current || ac.id === hoveredRef.current) {
+        newVisibleIds.add(ac.id);
+        outOfViewSince.current.delete(ac.id); // Reset timer
         return true;
       }
       
-      const pos = latLonToVector3(ac.position.latitude, ac.position.longitude, ac.position.altitude);
+      const isVisible = isAircraftVisible(ac, cameraDir, cameraPos);
       
-      // Check if position is in camera frustum
-      if (!frustum.current.containsPoint(pos)) {
-        return false;
+      if (isVisible) {
+        newVisibleIds.add(ac.id);
+        // Clear out-of-view timer when aircraft comes back into view
+        outOfViewSince.current.delete(ac.id);
+      } else {
+        // Track when aircraft left viewport
+        if (!outOfViewSince.current.has(ac.id)) {
+          outOfViewSince.current.set(ac.id, nowMs);
+        }
       }
       
-      // Check if aircraft is on the visible side of the globe (not behind it)
-      const toAircraft = pos.clone().sub(cameraPos);
-      const dotProduct = toAircraft.normalize().dot(cameraDir);
-      
-      // Only show if roughly in front of camera (dot > -0.3 allows some peripheral vision)
-      return dotProduct > -0.3;
+      return isVisible;
     });
+    
+    visibleIds.current = newVisibleIds;
     
     // Only update state if count changed (avoid unnecessary re-renders)
     if (visible.length !== visibleAircraft.length || 
@@ -76,6 +117,36 @@ export function AircraftLayer() {
       setVisibleAircraft(visible);
     }
   });
+  
+  // Periodically deload aircraft that have been out of view for too long
+  useEffect(() => {
+    const checkDeload = () => {
+      const nowMs = Date.now();
+      const toRemove: string[] = [];
+      
+      outOfViewSince.current.forEach((exitTime, id) => {
+        // Don't remove selected or hovered aircraft
+        if (id === selectedAircraft || id === hoveredAircraft) {
+          outOfViewSince.current.delete(id);
+          return;
+        }
+        
+        // Check if grace period has passed
+        if (nowMs - exitTime > DELOAD_GRACE_PERIOD) {
+          toRemove.push(id);
+          outOfViewSince.current.delete(id);
+        }
+      });
+      
+      if (toRemove.length > 0) {
+        console.log(`[AircraftLayer] Deloading ${toRemove.length} out-of-view aircraft`);
+        removeAircraft(toRemove);
+      }
+    };
+    
+    const interval = setInterval(checkDeload, DELOAD_CHECK_INTERVAL);
+    return () => clearInterval(interval);
+  }, [removeAircraft, selectedAircraft, hoveredAircraft]);
   
   return (
     <group>

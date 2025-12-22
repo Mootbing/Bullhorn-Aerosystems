@@ -100,10 +100,25 @@ export function DataPoller() {
   
   const hasInitialized = useRef(false);
   const lastFetchBounds = useRef<string>('');
-  const cachedAircraft = useRef<Map<string, Aircraft>>(new Map());
   const fetchController = useRef<AbortController | null>(null);
   const lastFetchTime = useRef(0);
   const consecutiveErrors = useRef(0);
+  
+  // Keep cache in sync with store (for when aircraft are deloaded)
+  const cachedAircraft = useRef<Map<string, Aircraft>>(new Map());
+  useEffect(() => {
+    // Sync cache with current store state
+    const currentIds = new Set(aircraft.map(a => a.id));
+    cachedAircraft.current.forEach((_, id) => {
+      if (!currentIds.has(id)) {
+        cachedAircraft.current.delete(id);
+      }
+    });
+    // Update cache with current aircraft data
+    aircraft.forEach(ac => {
+      cachedAircraft.current.set(ac.id, ac);
+    });
+  }, [aircraft]);
   
   const fetchData = useCallback(async (bounds: ViewportBounds | null) => {
     // Don't fetch until location and viewport are ready

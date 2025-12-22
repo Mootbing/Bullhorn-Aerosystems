@@ -286,10 +286,9 @@ export function AircraftDot({ aircraft, onClick }: { aircraft: Aircraft; onClick
   });
   
   const getColor = () => {
-    if (aircraft.isPlayerControlled) return '#00ff88';
     if (isSelected) return '#00aaff';
-    if (isHovered) return '#ffaa00';
-    return '#ffffff';
+    if (isHovered) return '#00ffaa';
+    return '#00ff88'; // Green by default
   };
   
   return (

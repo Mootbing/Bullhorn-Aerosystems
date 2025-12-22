@@ -42,17 +42,55 @@ Available fields to filter on:
 - altitude: Altitude in feet (number)
 - speed: Ground speed in knots (number)
 - heading: Track heading in degrees (0-360)
+- latitude: Latitude in degrees (-90 to 90)
+- longitude: Longitude in degrees (-180 to 180)
 - onGround: Whether aircraft is on ground (boolean)
 - squawk: Transponder squawk code
 
-Common patterns to recognize:
-- "flights from X to Y" - Look for callsigns or origins matching X, destinations are not in our data
-- "above/below X feet" - altitude filters
-- "faster/slower than X knots" - speed filters
-- "heading north/south/east/west" - heading ranges (N: 315-45, E: 45-135, S: 135-225, W: 225-315)
-- Country names - match to originCountry
-- Airline codes (UAL, DAL, AAL, etc.) - partial match callsign
-- City names - might be in callsign or interpret as origin region
+ALTITUDE PATTERNS - Parse carefully:
+- "20k ft" or "20K feet" = 20000 feet
+- "35k" = 35000 feet
+- "FL350" or "flight level 350" = 35000 feet (FL × 100)
+- "above/over 20000 feet" -> altitude gt 20000
+- "below/under 10000 feet" -> altitude lt 10000
+- "between 20k and 40k" -> altitude between [20000, 40000]
+- "high altitude" -> altitude gt 30000
+- "low altitude" -> altitude lt 10000
+- "cruising altitude" -> altitude between [30000, 42000]
+
+HEADING/DIRECTION/TRACK PATTERNS:
+- "heading" and "track" are synonyms - both refer to the direction the aircraft is flying
+- "heading north" or "northbound" or "track north" -> heading between [315, 45]
+- "heading south" or "southbound" or "track south" -> heading between [135, 225]
+- "heading east" or "eastbound" or "track east" -> heading between [45, 135]
+- "heading west" or "westbound" or "track west" -> heading between [225, 315]
+- "heading northeast" -> heading between [22, 68]
+- "heading northwest" -> heading between [292, 338]
+- "heading southeast" -> heading between [112, 158]
+- "heading southwest" -> heading between [202, 248]
+- "track 311" or "heading 311" -> heading equals 311 (or between [306, 316] for approximate match)
+- Specific degree values: "track 270", "heading 090" -> match that heading ±5 degrees
+
+LOCATION/GEOGRAPHIC PATTERNS:
+- "near equator" or "equatorial" -> latitude between [-10, 10]
+- "northern hemisphere" -> latitude gt 0
+- "southern hemisphere" -> latitude lt 0
+- "over atlantic" -> longitude between [-60, -10]
+- "over pacific" -> longitude between [140, 180] OR between [-180, -120]
+- "over europe" -> latitude between [35, 70], longitude between [-10, 40]
+- "over usa" or "over united states" -> latitude between [25, 50], longitude between [-125, -65]
+- "polar" or "arctic" -> latitude gt 66 OR latitude lt -66
+- "tropical" -> latitude between [-23, 23]
+
+SPEED PATTERNS:
+- "fast" or "high speed" -> speed gt 500
+- "slow" -> speed lt 300
+- "supersonic" -> speed gt 660
+
+AIRLINE CODES (map to callsign contains):
+- United/UAL, Delta/DAL, American/AAL, Southwest/SWA, JetBlue/JBU, Alaska/ASA
+- British Airways/BAW, Air France/AFR, Lufthansa/DLH, KLM/KLM
+- Emirates/UAE, Qatar/QTR, Singapore/SIA, Cathay/CPA
 
 Return JSON with this structure:
 {
@@ -63,10 +101,13 @@ Return JSON with this structure:
 }
 
 Examples:
-- "United flights" -> { "filters": [{ "field": "callsign", "operator": "contains", "value": "UAL" }], "freeText": [] }
-- "above 30000 feet" -> { "filters": [{ "field": "altitude", "operator": "gt", "value": 30000 }], "freeText": [] }
+- "flights above 20k ft" -> { "filters": [{ "field": "altitude", "operator": "gt", "value": 20000 }], "freeText": [] }
+- "heading north" -> { "filters": [{ "field": "heading", "operator": "between", "value": [315, 45] }], "freeText": [] }
+- "flights near equator" -> { "filters": [{ "field": "latitude", "operator": "between", "value": [-10, 10] }], "freeText": [] }
+- "United flights above 35000" -> { "filters": [{ "field": "callsign", "operator": "contains", "value": "UAL" }, { "field": "altitude", "operator": "gt", "value": 35000 }], "freeText": [] }
+- "fast flights heading west" -> { "filters": [{ "field": "speed", "operator": "gt", "value": 500 }, { "field": "heading", "operator": "between", "value": [225, 315] }], "freeText": [] }
 - "flights from Germany" -> { "filters": [{ "field": "originCountry", "operator": "contains", "value": "Germany" }], "freeText": [] }
-- "SWR18P" -> { "filters": [{ "field": "callsign", "operator": "contains", "value": "SWR18P" }], "freeText": ["SWR18P"] }`;
+- "FL350 and above" -> { "filters": [{ "field": "altitude", "operator": "gt", "value": 35000 }], "freeText": [] }`;
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',

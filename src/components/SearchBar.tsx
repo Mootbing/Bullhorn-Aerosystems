@@ -37,6 +37,12 @@ function matchesFilter(aircraft: Aircraft, filter: ParsedSearch['filters'][0]): 
     case 'heading':
       fieldValue = aircraft.position.heading;
       break;
+    case 'latitude':
+      fieldValue = aircraft.position.latitude;
+      break;
+    case 'longitude':
+      fieldValue = aircraft.position.longitude;
+      break;
     case 'onGround':
       fieldValue = aircraft.onGround;
       break;
@@ -60,7 +66,12 @@ function matchesFilter(aircraft: Aircraft, filter: ParsedSearch['filters'][0]): 
       return typeof fieldValue === 'number' && fieldValue < Number(value);
     case 'between':
       if (Array.isArray(value) && typeof fieldValue === 'number') {
-        return fieldValue >= value[0] && fieldValue <= value[1];
+        const [min, max] = value;
+        // Handle wrap-around for heading (e.g., north: 315-45 spans across 0)
+        if (field === 'heading' && min > max) {
+          return fieldValue >= min || fieldValue <= max;
+        }
+        return fieldValue >= min && fieldValue <= max;
       }
       return false;
     default:
@@ -82,15 +93,41 @@ function matchesFreeText(aircraft: Aircraft, terms: string[]): boolean {
   return terms.some(term => searchableText.includes(term.toLowerCase()));
 }
 
+// Check if a specific field is matched by any filter
+function isFieldMatched(field: string, filters: ParsedSearch['filters']): boolean {
+  return filters.some(f => f.field === field);
+}
+
+// Check if a text value matches any free text term
+function textMatchesFreeText(text: string | undefined | null, terms: string[]): boolean {
+  if (!text || terms.length === 0) return false;
+  return terms.some(term => text.toLowerCase().includes(term.toLowerCase()));
+}
+
+// Animated highlight component with left-to-right sweep
+function MatchHighlight({ matched, children, label }: { matched: boolean; children: React.ReactNode; label?: string }) {
+  return (
+    <span className="flex items-center gap-1">
+      {label && <span className="text-[#666]">{label}</span>}
+      <span className={matched ? 'match-highlight text-[#00ff88] font-medium' : 'text-[#444]'}>
+        {children}
+      </span>
+    </span>
+  );
+}
+
 export function SearchBar() {
   const [query, setQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [results, setResults] = useState<Aircraft[]>([]);
   const [showResults, setShowResults] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [activeFilters, setActiveFilters] = useState<ParsedSearch['filters']>([]);
+  const [activeFreeText, setActiveFreeText] = useState<string[]>([]);
   
   const aircraft = useRadarStore((state) => state.aircraft);
   const selectAircraft = useRadarStore((state) => state.selectAircraft);
+  const hoverAircraft = useRadarStore((state) => state.hoverAircraft);
   
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
@@ -111,11 +148,15 @@ export function SearchBar() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           query: searchQuery,
-          aircraftFields: ['callsign', 'id', 'originCountry', 'altitude', 'speed', 'heading', 'onGround', 'squawk'],
+          aircraftFields: ['callsign', 'id', 'originCountry', 'altitude', 'speed', 'heading', 'latitude', 'longitude', 'onGround', 'squawk'],
         }),
       });
       
       const parsed: ParsedSearch = await response.json();
+      
+      // Store filters for highlighting
+      setActiveFilters(parsed.filters || []);
+      setActiveFreeText(parsed.freeText || []);
       
       // Filter aircraft based on parsed query
       let filtered = aircraft;
@@ -136,6 +177,9 @@ export function SearchBar() {
       if (filtered.length === 0 && aircraft.length > 0) {
         const terms = searchQuery.toLowerCase().split(/\s+/);
         filtered = aircraft.filter(ac => matchesFreeText(ac, terms));
+        // Update free text for highlighting in fallback mode
+        setActiveFreeText(terms);
+        setActiveFilters([]);
       }
       
       // Update results with total count
@@ -149,6 +193,8 @@ export function SearchBar() {
       // Fallback to simple search
       const terms = searchQuery.toLowerCase().split(/\s+/);
       const filtered = aircraft.filter(ac => matchesFreeText(ac, terms));
+      setActiveFilters([]);
+      setActiveFreeText(terms);
       setTotalMatches(filtered.length);
       setResults(filtered.slice(0, 50));
       setShowResults(true);
@@ -189,18 +235,46 @@ export function SearchBar() {
     return () => document.removeEventListener('click', handleClick);
   }, []);
   
+  // "/" key to focus search
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger if already typing in an input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+      if (e.key === '/') {
+        e.preventDefault();
+        inputRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+  
   const [totalMatches, setTotalMatches] = useState(0);
   const resultsRef = useRef<HTMLDivElement>(null);
   
-  // Scroll selected item into view
+  // Scroll selected item into view and show preview in TrackInfo
   useEffect(() => {
     if (resultsRef.current && results.length > 0) {
       const selectedEl = resultsRef.current.querySelector(`[data-index="${selectedIndex}"]`);
       if (selectedEl) {
         selectedEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
       }
+      // Preview selected result in TrackInfo panel
+      const selectedAircraft = results[selectedIndex];
+      if (selectedAircraft && showResults) {
+        hoverAircraft(selectedAircraft.id);
+      }
     }
-  }, [selectedIndex, results.length]);
+  }, [selectedIndex, results, showResults, hoverAircraft]);
+  
+  // Clear hover when results close
+  useEffect(() => {
+    if (!showResults) {
+      hoverAircraft(null);
+    }
+  }, [showResults, hoverAircraft]);
   
   const handleTextareaKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Allow Enter to submit, Shift+Enter for newline
@@ -255,40 +329,61 @@ export function SearchBar() {
               ref={resultsRef}
               className="max-h-[320px] overflow-y-auto scrollbar-thin scrollbar-thumb-[#333] scrollbar-track-transparent"
             >
-              {results.map((ac, index) => (
-                <div
-                  key={ac.id}
-                  data-index={index}
-                  onClick={() => handleResultClick(ac)}
-                  className={`px-3 py-2 cursor-pointer border-b border-[#0a0a0a] last:border-0 transition-colors ${
-                    index === selectedIndex 
-                      ? 'bg-[#00ff88]/10 border-l-2 border-l-[#00ff88]' 
-                      : 'hover:bg-[#111] border-l-2 border-l-transparent'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="text-white text-[11px] font-medium">{ac.callsign || '—'}</span>
-                      <span className="text-[#00ff88] text-[9px] font-mono">{ac.id.toUpperCase()}</span>
+              {results.map((ac, index) => {
+                // Determine which fields are matched for highlighting
+                const callsignMatched = isFieldMatched('callsign', activeFilters) || textMatchesFreeText(ac.callsign, activeFreeText);
+                const idMatched = isFieldMatched('id', activeFilters) || textMatchesFreeText(ac.id, activeFreeText);
+                const countryMatched = isFieldMatched('originCountry', activeFilters) || textMatchesFreeText(ac.originCountry, activeFreeText);
+                const altitudeMatched = isFieldMatched('altitude', activeFilters);
+                const speedMatched = isFieldMatched('speed', activeFilters);
+                // "track" in aviation is the same as heading
+                const headingMatched = isFieldMatched('heading', activeFilters) || isFieldMatched('track', activeFilters);
+                const latLonMatched = isFieldMatched('latitude', activeFilters) || isFieldMatched('longitude', activeFilters);
+                
+                return (
+                  <div
+                    key={ac.id}
+                    data-index={index}
+                    onClick={() => handleResultClick(ac)}
+                    className={`px-3 py-2 cursor-pointer border-b border-[#0a0a0a] last:border-0 transition-colors ${
+                      index === selectedIndex 
+                        ? 'bg-[#00ff88]/10 border-l-2 border-l-[#00ff88]' 
+                        : 'hover:bg-[#111] border-l-2 border-l-transparent'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[11px] font-medium ${callsignMatched ? 'match-highlight text-[#00ff88]' : 'text-white'}`}>
+                          {ac.callsign || '—'}
+                        </span>
+                        <span className={`text-[9px] font-mono ${idMatched ? 'match-highlight text-[#00ff88]' : 'text-[#888]'}`}>
+                          {ac.id.toUpperCase()}
+                        </span>
+                      </div>
+                      <span className={`text-[9px] ${countryMatched ? 'match-highlight text-[#00ff88]' : 'text-[#555]'}`}>
+                        {ac.originCountry}
+                      </span>
                     </div>
-                    <span className="text-[#555] text-[9px]">{ac.originCountry}</span>
+                    <div className="text-[9px] mt-0.5 flex items-center gap-3">
+                      <MatchHighlight matched={altitudeMatched} label="ALT">
+                        {Math.round(ac.position.altitude).toLocaleString()} ft
+                      </MatchHighlight>
+                      <MatchHighlight matched={speedMatched} label="SPD">
+                        {Math.round(ac.position.speed)} kts
+                      </MatchHighlight>
+                      <MatchHighlight matched={headingMatched} label="HDG">
+                        {Math.round(ac.position.heading)}°
+                      </MatchHighlight>
+                      {latLonMatched && (
+                        <span className="flex items-center gap-1">
+                          <span className="text-[#666]">POS</span>
+                          <span className="match-highlight text-[#00ff88]">✓</span>
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <div className="text-[9px] text-[#444] mt-0.5 flex items-center gap-3">
-                    <span className="flex items-center gap-1">
-                      <span className="text-[#666]">ALT</span>
-                      {Math.round(ac.position.altitude).toLocaleString()} ft
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <span className="text-[#666]">SPD</span>
-                      {Math.round(ac.position.speed)} kts
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <span className="text-[#666]">HDG</span>
-                      {Math.round(ac.position.heading)}°
-                    </span>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
           
@@ -305,7 +400,7 @@ export function SearchBar() {
       {/* Search input box */}
       <div className="bg-black/90 border border-[#1a1a1a]">
         <div className="border-b border-[#1a1a1a] px-3 py-2 text-[10px] text-[#666] flex items-center justify-between">
-          <span>SEARCH_AIRCRAFT</span>
+          <span>SEARCH_AIRCRAFT <span className="text-[#444]">[/]</span></span>
           {isSearching && <span className="text-[#00ff88] animate-pulse">PROCESSING...</span>}
         </div>
         <div className="p-3">
@@ -316,9 +411,9 @@ export function SearchBar() {
               onChange={handleInputChange}
               onKeyDown={handleTextareaKeyDown}
               onFocus={() => query && setShowResults(true)}
-              placeholder="Describe the flights you're looking for...&#10;&#10;e.g. 'Show me all United flights above 35,000 feet heading west'"
+              placeholder="Show me all United flights above 35,000 ft heading west"
               rows={3}
-              className="w-full bg-black border border-[#333] px-3 py-2 text-[11px] text-white placeholder-[#444] focus:border-[#00ff88]/50 focus:outline-none font-mono resize-none"
+              className="w-full bg-black border border-[#333] px-3 py-2 text-[11px] text-white placeholder-[#444] focus:border-[#00ff88]/50 focus:outline-none font-mono resize-none overflow-hidden"
             />
             <div className="absolute right-2 bottom-2 text-[8px] text-[#333] flex items-center gap-1">
               <span className="text-[#444]">⏎</span> search

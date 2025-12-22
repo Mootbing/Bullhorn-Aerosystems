@@ -5,6 +5,7 @@ import { Stars, PerspectiveCamera, AdaptiveDpr } from '@react-three/drei';
 import { Globe } from './Globe';
 import { CountryBorders } from './CountryBorders';
 import { AircraftLayer } from './AircraftLayer';
+import { AirportsLayer } from './AirportsLayer';
 import { CameraController } from './CameraController';
 import { ViewportTracker } from './ViewportTracker';
 import { Suspense } from 'react';
@@ -34,6 +35,7 @@ export function Scene() {
         <Suspense fallback={<LoadingFallback />}>
           <Globe />
           <CountryBorders />
+          <AirportsLayer />
           <AircraftLayer />
         </Suspense>
         <CameraController />

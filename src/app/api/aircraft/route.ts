@@ -101,6 +101,13 @@ export async function GET(request: Request) {
           { status: 429 }
         );
       }
+      if (response.status === 401) {
+        console.warn('[API] Authentication failed - check credentials.json or create an OpenSky account');
+        return NextResponse.json(
+          { error: 'Authentication required', message: 'Please add OpenSky credentials to credentials.json' },
+          { status: 401 }
+        );
+      }
       throw new Error(`OpenSky API error: ${response.status}`);
     }
 
