@@ -19,8 +19,9 @@ function latLonToVector3(lat: number, lon: number): THREE.Vector3 {
 // Instanced mesh for large airports with hover support
 function LargeAirportsInstanced({ airports }: { airports: Airport[] }) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
-  const hoverAirport = useRadarStore((state) => state.hoverAirport);
-  const hoveredAirport = useRadarStore((state) => state.gameState.hoveredAirport);
+  const hoverEntity = useRadarStore((state) => state.hoverEntity);
+  const hoveredEntity = useRadarStore((state) => state.gameState.hoveredEntity);
+  const hoveredAirport = hoveredEntity?.type === 'airport' ? hoveredEntity.id : null;
   
   const positions = useMemo(() => {
     return airports.map(airport => latLonToVector3(airport.lat, airport.lon));
@@ -70,13 +71,13 @@ function LargeAirportsInstanced({ airports }: { airports: Airport[] }) {
   const handlePointerOver = (e: ThreeEvent<PointerEvent>) => {
     e.stopPropagation();
     if (e.instanceId !== undefined && indexToIcao[e.instanceId]) {
-      hoverAirport(indexToIcao[e.instanceId]);
+      hoverEntity({ type: 'airport', id: indexToIcao[e.instanceId] });
       document.body.style.cursor = 'pointer';
     }
   };
   
   const handlePointerOut = () => {
-    hoverAirport(null);
+    hoverEntity(null);
     document.body.style.cursor = 'auto';
   };
   
@@ -105,8 +106,9 @@ function LargeAirportsInstanced({ airports }: { airports: Airport[] }) {
 function SmallAirportsInstanced({ airports }: { airports: Airport[] }) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const { camera } = useThree();
-  const hoverAirport = useRadarStore((state) => state.hoverAirport);
-  const hoveredAirport = useRadarStore((state) => state.gameState.hoveredAirport);
+  const hoverEntity = useRadarStore((state) => state.hoverEntity);
+  const hoveredEntity = useRadarStore((state) => state.gameState.hoveredEntity);
+  const hoveredAirport = hoveredEntity?.type === 'airport' ? hoveredEntity.id : null;
   
   const positions = useMemo(() => {
     return airports.map(airport => latLonToVector3(airport.lat, airport.lon));
@@ -167,13 +169,13 @@ function SmallAirportsInstanced({ airports }: { airports: Airport[] }) {
   const handlePointerOver = (e: ThreeEvent<PointerEvent>) => {
     e.stopPropagation();
     if (e.instanceId !== undefined && indexToIcao[e.instanceId]) {
-      hoverAirport(indexToIcao[e.instanceId]);
+      hoverEntity({ type: 'airport', id: indexToIcao[e.instanceId] });
       document.body.style.cursor = 'pointer';
     }
   };
   
   const handlePointerOut = () => {
-    hoverAirport(null);
+    hoverEntity(null);
     document.body.style.cursor = 'auto';
   };
   

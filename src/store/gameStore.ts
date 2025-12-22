@@ -1,4 +1,9 @@
 import { create } from 'zustand';
+import { EntityRef } from '@/types/entities';
+
+// ============================================================================
+// DATA INTERFACES
+// ============================================================================
 
 interface Position {
   latitude: number;
@@ -44,18 +49,6 @@ interface FlightTrack {
   error?: string;
 }
 
-interface GameState {
-  isPlaying: boolean;
-  isPaused: boolean;
-  selectedAircraft: string | null;
-  hoveredAircraft: string | null;
-  hoveredAirport: string | null;
-  controlledAircraft: Set<string>;
-  score: number;
-  landedAircraft: string[];
-  crashedAircraft: string[];
-}
-
 interface ViewportBounds {
   minLat: number;
   maxLat: number;
@@ -63,7 +56,7 @@ interface ViewportBounds {
   maxLon: number;
   centerLat: number;
   centerLon: number;
-  zoomLevel: number; // 0-1, where 1 is fully zoomed out
+  zoomLevel: number;
 }
 
 interface Airport {
@@ -79,17 +72,55 @@ interface Airport {
   scheduled_service: boolean;
 }
 
+// ============================================================================
+// INTERACTION STATE
+// ============================================================================
+
+interface GameState {
+  hoveredEntity: EntityRef | null;
+  selectedEntity: EntityRef | null;
+  isPlaying: boolean;
+  isPaused: boolean;
+  controlledAircraft: Set<string>;
+  score: number;
+  landedAircraft: string[];
+  crashedAircraft: string[];
+}
+
+// ============================================================================
+// STORE INTERFACE
+// ============================================================================
+
 interface Store {
+  // Entity data
   aircraft: Aircraft[];
+  airports: Airport[];
+  
+  // Entity data actions
   setAircraft: (a: Aircraft[]) => void;
   removeAircraft: (ids: string[]) => void;
+  fetchAirports: () => Promise<void>;
+  airportsLoading: boolean;
+  airportsError: string | null;
+  
+  // Interaction state
   gameState: GameState;
-  startGame: (t: number) => void;
+  
+  // Entity actions
+  hoverEntity: (ref: EntityRef | null) => void;
+  selectEntity: (ref: EntityRef | null) => void;
+  
+  // Entity lookup
+  getAircraftById: (id: string) => Aircraft | undefined;
+  getAirportById: (icao: string) => Airport | undefined;
+  getEntityByRef: (ref: EntityRef | null) => Aircraft | Airport | undefined;
+  
+  // Game actions
+  startGame: () => void;
   endGame: () => void;
-  selectAircraft: (id: string | null) => void;
-  hoverAircraft: (id: string | null) => void;
-  hoverAirport: (icao: string | null) => void;
   takeControlOfAircraft: (id: string) => void;
+  
+  // Other state
   isPolling: boolean;
   setPolling: (p: boolean) => void;
   flightTracks: Map<string, FlightTrack>;
@@ -99,36 +130,74 @@ interface Store {
   setViewportBounds: (bounds: ViewportBounds) => void;
   locationReady: boolean;
   setLocationReady: (ready: boolean) => void;
-  airports: Airport[];
-  airportsLoading: boolean;
-  airportsError: string | null;
-  fetchAirports: () => Promise<void>;
 }
 
 export type { Aircraft, Position, TrackWaypoint, FlightTrack, ViewportBounds, Airport };
 
+// ============================================================================
+// STORE IMPLEMENTATION
+// ============================================================================
+
 export const useRadarStore = create<Store>((set, get) => ({
+  // Entity data
   aircraft: [],
+  airports: [],
+  airportsLoading: false,
+  airportsError: null,
+  
   setAircraft: (aircraft) => set({ aircraft }),
+  
   removeAircraft: (ids) => set((state) => ({
     aircraft: state.aircraft.filter((a) => !ids.includes(a.id)),
   })),
+  
+  // Interaction state
   gameState: {
+    hoveredEntity: null,
+    selectedEntity: null,
     isPlaying: false,
     isPaused: false,
-    selectedAircraft: null,
-    hoveredAircraft: null,
-    hoveredAirport: null,
     controlledAircraft: new Set(),
     score: 0,
     landedAircraft: [],
     crashedAircraft: [],
   },
-  startGame: () => set((s) => ({ gameState: { ...s.gameState, isPlaying: true, score: 0 } })),
-  endGame: () => set((s) => ({ gameState: { ...s.gameState, isPlaying: false } })),
-  selectAircraft: (id) => set((s) => ({ gameState: { ...s.gameState, selectedAircraft: id } })),
-  hoverAircraft: (id) => set((s) => ({ gameState: { ...s.gameState, hoveredAircraft: id, hoveredAirport: null } })),
-  hoverAirport: (icao) => set((s) => ({ gameState: { ...s.gameState, hoveredAirport: icao, hoveredAircraft: null } })),
+  
+  // Entity actions
+  hoverEntity: (ref) => set((s) => ({
+    gameState: { ...s.gameState, hoveredEntity: ref },
+  })),
+  
+  selectEntity: (ref) => set((s) => ({
+    gameState: { ...s.gameState, selectedEntity: ref },
+  })),
+  
+  // Entity lookup
+  getAircraftById: (id) => get().aircraft.find(a => a.id === id),
+  
+  getAirportById: (icao) => get().airports.find(a => a.icao === icao),
+  
+  getEntityByRef: (ref) => {
+    if (!ref) return undefined;
+    switch (ref.type) {
+      case 'aircraft':
+        return get().getAircraftById(ref.id);
+      case 'airport':
+        return get().getAirportById(ref.id);
+      default:
+        return undefined;
+    }
+  },
+  
+  // Game actions
+  startGame: () => set((s) => ({ 
+    gameState: { ...s.gameState, isPlaying: true, score: 0 } 
+  })),
+  
+  endGame: () => set((s) => ({ 
+    gameState: { ...s.gameState, isPlaying: false } 
+  })),
+  
   takeControlOfAircraft: (id) =>
     set((s) => {
       const c = new Set(s.gameState.controlledAircraft);
@@ -138,9 +207,13 @@ export const useRadarStore = create<Store>((set, get) => ({
         aircraft: s.aircraft.map((a) => (a.id === id ? { ...a, isPlayerControlled: true } : a)),
       };
     }),
+  
+  // Other state
   isPolling: true,
   setPolling: (isPolling) => set({ isPolling }),
+  
   flightTracks: new Map(),
+  
   fetchFlightTrack: async (icao24: string) => {
     const { flightTracks, aircraft } = get();
     
@@ -153,7 +226,6 @@ export const useRadarStore = create<Store>((set, get) => ({
       return;
     }
     
-    // Check if this is a mock aircraft (ID starts with "mock_")
     const isMockAircraft = icao24.startsWith('mock_');
     
     const newTracks = new Map(flightTracks);
@@ -168,15 +240,12 @@ export const useRadarStore = create<Store>((set, get) => ({
     });
     set({ flightTracks: newTracks });
     
-    // Generate mock flight path for mock aircraft
     if (isMockAircraft) {
       const mockAircraft = aircraft.find(a => a.id === icao24);
       if (mockAircraft) {
         const waypoints: TrackWaypoint[] = [];
         const { latitude, longitude, altitude, heading, speed } = mockAircraft.position;
         
-        // Generate past waypoints (going backwards in time)
-        // Create 20 waypoints over the last 30 minutes
         const now = Date.now();
         const waypointCount = 20;
         const totalMinutes = 30;
@@ -185,20 +254,15 @@ export const useRadarStore = create<Store>((set, get) => ({
           const minutesAgo = (i / waypointCount) * totalMinutes;
           const time = now - minutesAgo * 60 * 1000;
           
-          // Calculate position going backwards from current position
-          // Speed is in knots, approximate degrees per minute
           const speedDegPerMin = (speed / 60) / 60;
           const distance = speedDegPerMin * minutesAgo;
           
-          // Reverse heading to go backwards
           const reverseHeadingRad = ((heading + 180) % 360) * (Math.PI / 180);
           
-          // Add some slight randomness to make the path look more natural
           const jitter = (Math.random() - 0.5) * 0.02;
           const pastLat = latitude + distance * Math.cos(reverseHeadingRad) + jitter;
           const pastLon = longitude + distance * Math.sin(reverseHeadingRad) + jitter;
           
-          // Slight altitude variation
           const altVariation = (Math.random() - 0.5) * 2000;
           const pastAlt = Math.max(5000, altitude + altVariation * (minutesAgo / totalMinutes));
           
@@ -207,7 +271,7 @@ export const useRadarStore = create<Store>((set, get) => ({
             latitude: Math.max(-90, Math.min(90, pastLat)),
             longitude: ((pastLon + 180) % 360) - 180,
             altitude: pastAlt,
-            heading: heading + (Math.random() - 0.5) * 5, // Slight heading variation
+            heading: heading + (Math.random() - 0.5) * 5,
           });
         }
         
@@ -279,22 +343,22 @@ export const useRadarStore = create<Store>((set, get) => ({
       set({ flightTracks: updatedTracks });
     }
   },
+  
   clearFlightTrack: (icao24: string) => {
     const newTracks = new Map(get().flightTracks);
     newTracks.delete(icao24);
     set({ flightTracks: newTracks });
   },
+  
   viewportBounds: null,
   setViewportBounds: (bounds) => set({ viewportBounds: bounds }),
+  
   locationReady: false,
   setLocationReady: (ready) => set({ locationReady: ready }),
-  airports: [],
-  airportsLoading: false,
-  airportsError: null,
+  
   fetchAirports: async () => {
     const { airports, airportsLoading } = get();
     
-    // Don't refetch if already loaded or loading
     if (airports.length > 0 || airportsLoading) {
       return;
     }

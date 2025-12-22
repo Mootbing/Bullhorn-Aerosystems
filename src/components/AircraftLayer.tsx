@@ -26,12 +26,15 @@ const DELOAD_CHECK_INTERVAL = 2000;
 
 export function AircraftLayer() {
   const aircraft = useRadarStore((state) => state.aircraft);
-  const selectAircraft = useRadarStore((state) => state.selectAircraft);
+  const selectEntity = useRadarStore((state) => state.selectEntity);
   const removeAircraft = useRadarStore((state) => state.removeAircraft);
-  const hoveredAircraft = useRadarStore((state) => state.gameState.hoveredAircraft);
-  const selectedAircraft = useRadarStore((state) => state.gameState.selectedAircraft);
+  const hoveredEntity = useRadarStore((state) => state.gameState.hoveredEntity);
+  const selectedEntity = useRadarStore((state) => state.gameState.selectedEntity);
   const { camera } = useThree();
   
+  // Extract aircraft IDs from unified entity refs
+  const hoveredAircraft = hoveredEntity?.type === 'aircraft' ? hoveredEntity.id : null;
+  const selectedAircraft = selectedEntity?.type === 'aircraft' ? selectedEntity.id : null;
   const displayPathFor = hoveredAircraft || selectedAircraft;
   
   // Refs to track current selection/hover for use in useFrame (avoids stale closures)
@@ -153,7 +156,7 @@ export function AircraftLayer() {
       {displayPathFor && <FlightPath icao24={displayPathFor} />}
       
       {visibleAircraft.map((ac) => (
-        <AircraftDot key={ac.id} aircraft={ac} onClick={() => selectAircraft(ac.id)} />
+        <AircraftDot key={ac.id} aircraft={ac} onClick={() => selectEntity({ type: 'aircraft', id: ac.id })} />
       ))}
     </group>
   );

@@ -139,13 +139,13 @@ const LOD_THRESHOLD = 500;
 export function AircraftDot({ aircraft, onClick }: { aircraft: Aircraft; onClick?: () => void }) {
   const groupRef = useRef<THREE.Group>(null);
   const meshRef = useRef<THREE.Mesh>(null);
-  const selectedAircraft = useRadarStore((state) => state.gameState.selectedAircraft);
-  const hoveredAircraft = useRadarStore((state) => state.gameState.hoveredAircraft);
-  const hoverAircraft = useRadarStore((state) => state.hoverAircraft);
+  const selectedEntity = useRadarStore((state) => state.gameState.selectedEntity);
+  const hoveredEntity = useRadarStore((state) => state.gameState.hoveredEntity);
+  const hoverEntity = useRadarStore((state) => state.hoverEntity);
   const viewportBounds = useRadarStore((state) => state.viewportBounds);
   const aircraftCount = useRadarStore((state) => state.aircraft.length);
-  const isSelected = selectedAircraft === aircraft.id;
-  const isHovered = hoveredAircraft === aircraft.id;
+  const isSelected = selectedEntity?.type === 'aircraft' && selectedEntity.id === aircraft.id;
+  const isHovered = hoveredEntity?.type === 'aircraft' && hoveredEntity.id === aircraft.id;
   const useSimpleMode = aircraftCount > LOD_THRESHOLD;
   
   const currentOpacity = useRef(0); // Start invisible, fade in
@@ -295,8 +295,8 @@ export function AircraftDot({ aircraft, onClick }: { aircraft: Aircraft; onClick
     <group
       ref={groupRef}
       onClick={(e) => { e.stopPropagation(); onClick?.(); }}
-      onPointerOver={(e) => { e.stopPropagation(); hoverAircraft(aircraft.id); document.body.style.cursor = 'pointer'; }}
-      onPointerOut={() => { hoverAircraft(null); document.body.style.cursor = 'auto'; }}
+      onPointerOver={(e) => { e.stopPropagation(); hoverEntity({ type: 'aircraft', id: aircraft.id }); document.body.style.cursor = 'pointer'; }}
+      onPointerOut={() => { hoverEntity(null); document.body.style.cursor = 'auto'; }}
     >
       {/* Only show hitbox in detailed paper airplane mode for performance */}
       {!useSimpleMode && (
