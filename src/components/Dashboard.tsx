@@ -84,25 +84,41 @@ export function Dashboard() {
         </div>
       </div>
       
-      {/* Toast notifications - Bottom Right, stacked */}
-      <div className="absolute bottom-20 right-4 pointer-events-none flex flex-col-reverse gap-2">
-        {toasts.map((toast, index) => (
-          <div 
-            key={toast.id}
-            className={`transition-all duration-300 ${
-              toast.exiting 
-                ? 'opacity-0 translate-x-4' 
-                : 'opacity-100 translate-x-0'
-            }`}
-            style={{
-              transitionDelay: toast.exiting ? '0ms' : `${index * 50}ms`,
-            }}
-          >
-            <div className="bg-black/80 backdrop-blur-sm border border-[#333] px-4 py-2 text-xs text-white tracking-widest whitespace-nowrap">
-              {toast.message}
+      {/* Toast notifications - Bottom Right, stacked from bottom */}
+      {/* New toasts appear at bottom, old ones rise up and fade out at top */}
+      <div className="absolute bottom-20 right-4 pointer-events-none flex flex-col gap-2">
+        {toasts.map((toast, index) => {
+          // Calculate opacity: index 0 = oldest (top) = faded, higher index = newer (bottom) = full
+          // Distance from bottom: 0 = at bottom (newest), higher = further up (older)
+          const distanceFromBottom = toasts.length - 1 - index;
+          const baseOpacity = Math.max(0.25, 1 - distanceFromBottom * 0.12);
+          
+          return (
+            <div 
+              key={toast.id}
+              className={`transition-all duration-300 ${
+                toast.exiting 
+                  ? 'opacity-0 -translate-y-2 scale-95' 
+                  : 'translate-y-0 scale-100'
+              }`}
+              style={{
+                opacity: toast.exiting ? 0 : baseOpacity,
+                transitionDelay: toast.exiting ? '0ms' : `${index * 30}ms`,
+              }}
+            >
+              <div 
+                className="backdrop-blur-sm border px-4 py-2 text-xs tracking-widest whitespace-nowrap"
+                style={{
+                  backgroundColor: `rgba(0, 0, 0, ${0.7 + distanceFromBottom * 0.03})`,
+                  borderColor: `rgba(51, 51, 51, ${baseOpacity})`,
+                  color: `rgba(255, 255, 255, ${baseOpacity})`,
+                }}
+              >
+                {toast.message}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
       
       {/* Bottom bar animation styles */}

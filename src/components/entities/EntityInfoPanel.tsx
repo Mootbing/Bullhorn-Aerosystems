@@ -4,7 +4,8 @@ import { useRef, useState, useEffect } from 'react';
 import { useRadarStore, Aircraft, Airport, ViewMode } from '@/store/gameStore';
 import { EntityRef, getEntityTypeName } from '@/types/entities';
 import { ScrollingText } from '../ScrollingText';
-import { GLOBE, UI } from '@/config/constants';
+import { UI } from '@/config/constants';
+import { predictPosition, predictAltitude } from '@/utils/geo';
 
 // View mode display names
 const VIEW_MODE_LABELS: Record<ViewMode, string> = {
@@ -14,32 +15,6 @@ const VIEW_MODE_LABELS: Record<ViewMode, string> = {
   orbit: 'ORBIT',
   top: 'TOP',
 };
-
-// Predict position based on speed (knots) and heading after elapsed time (seconds)
-function predictPosition(
-  lat: number,
-  lon: number,
-  heading: number,
-  speedKnots: number,
-  elapsedSeconds: number
-): { lat: number; lon: number } {
-  const kmPerHour = speedKnots * 1.852;
-  const kmPerSecond = kmPerHour / 3600;
-  const earthCircumferenceKm = GLOBE.EARTH_CIRCUMFERENCE_KM;
-  const distanceDegreesEquator = (kmPerSecond * elapsedSeconds / earthCircumferenceKm) * 360;
-  const headingRad = heading * (Math.PI / 180);
-  const newLat = lat + distanceDegreesEquator * Math.cos(headingRad);
-  const lonScale = Math.cos(lat * Math.PI / 180);
-  const newLon = lon + (distanceDegreesEquator * Math.sin(headingRad)) / Math.max(0.1, lonScale);
-  return { lat: newLat, lon: newLon };
-}
-
-// Predict altitude based on vertical rate (ft/min) and elapsed time
-function predictAltitude(altitude: number, verticalRate: number | undefined, elapsedSeconds: number): number {
-  if (!verticalRate || Math.abs(verticalRate) < 50) return altitude; // Ignore small V/S
-  const altChange = (verticalRate / 60) * elapsedSeconds; // ft/min to ft/s
-  return Math.max(0, altitude + altChange);
-}
 
 // ============================================================================
 // SHARED COMPONENTS

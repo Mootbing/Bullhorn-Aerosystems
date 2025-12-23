@@ -4,20 +4,16 @@ import { useEffect, useState, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useRadarStore } from '@/store/gameStore';
+import { latLonToVector3 } from '@/utils/geo';
+
+// ============================================================================
+// COUNTRY BORDERS COMPONENT
+// Draws animated country borders on the globe
+// Fixed: Uses bundled GeoJSON, proper disposal
+// ============================================================================
 
 const EARTH_RADIUS = 1.002;
-const GEOJSON_URL = 'https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json';
-const DRAW_DURATION = 1.5; // seconds to fully draw borders (slower)
-
-function latLonToVector3(lat: number, lon: number, radius: number = EARTH_RADIUS): THREE.Vector3 {
-  const phi = (90 - lat) * (Math.PI / 180);
-  const theta = (lon + 180) * (Math.PI / 180);
-  return new THREE.Vector3(
-    -radius * Math.sin(phi) * Math.cos(theta),
-    radius * Math.cos(phi),
-    radius * Math.sin(phi) * Math.sin(theta)
-  );
-}
+const DRAW_DURATION = 1.5; // seconds to fully draw borders
 
 interface GeoJSONFeature {
   type: string;
@@ -33,20 +29,27 @@ interface GeoJSONData {
 }
 
 export function CountryBorders() {
-  const [lineSegments, setLineSegments] = useState<{ positions: Float32Array; totalSegments: number } | null>(null);
+  const [lineData, setLineData] = useState<{ positions: Float32Array; totalSegments: number } | null>(null);
   const introPhase = useRadarStore((s) => s.introPhase);
-  const geometryRef = useRef<THREE.BufferGeometry>(null);
-  const materialRef = useRef<THREE.LineBasicMaterial>(null);
+  
+  const geometryRef = useRef<THREE.BufferGeometry | null>(null);
+  const materialRef = useRef<THREE.LineBasicMaterial | null>(null);
   const animationProgress = useRef(0);
   const animationStarted = useRef(false);
 
+  // Load bundled GeoJSON on mount
   useEffect(() => {
-    fetch(GEOJSON_URL)
+    let cancelled = false;
+    
+    // Use bundled local file instead of external URL
+    fetch('/countries.geo.json')
       .then(res => {
-        if (!res.ok) throw new Error('Failed to fetch');
+        if (!res.ok) throw new Error('Failed to fetch country borders');
         return res.json();
       })
       .then((data: GeoJSONData) => {
+        if (cancelled) return;
+        
         const allPoints: number[] = [];
         
         const processRing = (ring: number[][]) => {
@@ -54,8 +57,8 @@ export function CountryBorders() {
             const [lon1, lat1] = ring[i];
             const [lon2, lat2] = ring[i + 1];
             
-            const p1 = latLonToVector3(lat1, lon1);
-            const p2 = latLonToVector3(lat2, lon2);
+            const p1 = latLonToVector3(lat1, lon1, 0, EARTH_RADIUS);
+            const p2 = latLonToVector3(lat2, lon2, 0, EARTH_RADIUS);
             
             allPoints.push(p1.x, p1.y, p1.z);
             allPoints.push(p2.x, p2.y, p2.z);
@@ -74,15 +77,46 @@ export function CountryBorders() {
           }
         });
         
-        const totalSegments = allPoints.length / 6; // Each segment has 2 points * 3 coords
-        setLineSegments({ positions: new Float32Array(allPoints), totalSegments });
+        const totalSegments = allPoints.length / 6;
+        setLineData({ positions: new Float32Array(allPoints), totalSegments });
       })
       .catch(err => console.error('Failed to load country borders:', err));
+    
+    return () => {
+      cancelled = true;
+    };
   }, []);
+  
+  // Create geometry and material when data is ready
+  useEffect(() => {
+    if (!lineData) return;
+    
+    // Create geometry
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(lineData.positions, 3));
+    geometry.setDrawRange(0, 0); // Start hidden
+    geometryRef.current = geometry;
+    
+    // Create material
+    const material = new THREE.LineBasicMaterial({
+      color: '#ffffff',
+      transparent: true,
+      opacity: 0,
+    });
+    materialRef.current = material;
+    
+    // Cleanup on unmount
+    return () => {
+      geometry.dispose();
+      material.dispose();
+      geometryRef.current = null;
+      materialRef.current = null;
+    };
+  }, [lineData]);
   
   // Animate draw range
   useFrame((_, delta) => {
-    if (!geometryRef.current || !lineSegments) return;
+    if (!geometryRef.current || !lineData) return;
     
     // Start animation when borders phase begins
     if (introPhase === 'borders' || introPhase === 'airports' || introPhase === 'aircraft' || introPhase === 'complete') {
@@ -93,7 +127,6 @@ export function CountryBorders() {
     }
     
     if (!animationStarted.current) {
-      // Before animation, show nothing
       geometryRef.current.setDrawRange(0, 0);
       return;
     }
@@ -104,7 +137,7 @@ export function CountryBorders() {
       
       // Ease out cubic for smooth draw
       const eased = 1 - Math.pow(1 - animationProgress.current, 3);
-      const vertexCount = Math.floor(eased * lineSegments.positions.length / 3);
+      const vertexCount = Math.floor(eased * lineData.positions.length / 3);
       geometryRef.current.setDrawRange(0, vertexCount);
       
       // Also fade in opacity
@@ -114,17 +147,9 @@ export function CountryBorders() {
     }
   });
 
-  if (!lineSegments) return null;
+  if (!lineData || !geometryRef.current || !materialRef.current) return null;
 
   return (
-    <lineSegments>
-      <bufferGeometry ref={geometryRef}>
-        <bufferAttribute
-          attach="attributes-position"
-          args={[lineSegments.positions, 3]}
-        />
-      </bufferGeometry>
-      <lineBasicMaterial ref={materialRef} color="#ffffff" transparent opacity={0} />
-    </lineSegments>
+    <lineSegments geometry={geometryRef.current} material={materialRef.current} />
   );
 }

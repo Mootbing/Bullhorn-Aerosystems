@@ -4,7 +4,7 @@ import { Canvas } from '@react-three/fiber';
 import { Stars, PerspectiveCamera, AdaptiveDpr } from '@react-three/drei';
 import { Globe } from './Globe';
 import { CountryBorders } from './CountryBorders';
-import { AircraftLayer } from './AircraftLayer';
+import { AircraftLayerInstanced } from './AircraftLayerInstanced';
 import { AirportsLayer } from './AirportsLayer';
 import { CameraController } from './CameraController';
 import { ViewportTracker } from './ViewportTracker';
@@ -36,7 +36,7 @@ export function Scene() {
           <Globe />
           <CountryBorders />
           <AirportsLayer />
-          <AircraftLayer />
+          <AircraftLayerInstanced />
         </Suspense>
         <CameraController />
         <ViewportTracker />

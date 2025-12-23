@@ -5,25 +5,13 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useRadarStore, TrackWaypoint, Aircraft } from '@/store/gameStore';
 import { GLOBE, FLIGHT_PATH } from '@/config/constants';
+import { latLonToVector3, interpolateOnGlobe } from '@/utils/geo';
 
-function latLonToVector3(lat: number, lon: number, alt: number = 0): THREE.Vector3 {
-  const r = 1 + alt * GLOBE.ALTITUDE_SCALE;
-  const phi = (90 - lat) * (Math.PI / 180);
-  const theta = (lon + 180) * (Math.PI / 180);
-  return new THREE.Vector3(
-    -r * Math.sin(phi) * Math.cos(theta),
-    r * Math.cos(phi),
-    r * Math.sin(phi) * Math.sin(theta)
-  );
-}
-
-function interpolateOnGlobe(p1: THREE.Vector3, p2: THREE.Vector3, t: number, alt: number): THREE.Vector3 {
-  const result = new THREE.Vector3();
-  result.copy(p1).lerp(p2, t);
-  const r = 1 + alt * GLOBE.ALTITUDE_SCALE;
-  result.normalize().multiplyScalar(r);
-  return result;
-}
+// ============================================================================
+// FLIGHT PATH COMPONENT
+// Shows traveled path (solid) and predicted path (dashed)
+// Fixed: Proper THREE.js disposal, no allocations in render loop
+// ============================================================================
 
 // Animation timing constants
 const TOTAL_ANIMATION_TIME = FLIGHT_PATH.ANIMATION_DURATION;
@@ -31,7 +19,6 @@ const TRAVELED_RATIO = FLIGHT_PATH.TRAVELED_RATIO;
 const PREDICTED_RATIO = FLIGHT_PATH.PREDICTED_RATIO;
 
 // Combined flight path with synchronized drawing animation
-// Draws: origin → plane (solid) → destination (dotted) in one continuous stroke
 function CombinedFlightPath({ 
   waypoints, 
   aircraft 
@@ -139,6 +126,16 @@ function CombinedFlightPath({
     return { geometry: geo, material: mat, totalPoints: pts.length };
   }, [aircraft]);
   
+  // CRITICAL: Dispose geometries and materials on cleanup
+  useEffect(() => {
+    return () => {
+      if (traveled.geometry) traveled.geometry.dispose();
+      if (traveled.material) traveled.material.dispose();
+      if (predicted.geometry) predicted.geometry.dispose();
+      if (predicted.material) predicted.material.dispose();
+    };
+  }, [traveled, predicted]);
+  
   // Reset animation when aircraft/track changes
   useEffect(() => {
     if (currentKey !== animationKey.current) {
@@ -164,30 +161,22 @@ function CombinedFlightPath({
     const t = animationProgress.current;
     
     // Phase 1: Draw traveled path (origin → plane)
-    // Uses linear interpolation (no easing) for constant speed
     if (t <= TRAVELED_RATIO) {
-      // Normalize t to 0-1 for this phase
       const phaseT = t / TRAVELED_RATIO;
       const visibleCount = Math.max(2, Math.floor(phaseT * traveled.totalPoints));
       traveled.geometry.setDrawRange(0, visibleCount);
-      predicted.geometry.setDrawRange(0, 0); // Keep predicted hidden
+      predicted.geometry.setDrawRange(0, 0);
     } 
     // Phase 2: Draw predicted path (plane → destination)
-    // Uses ease-out at the end only
     else {
-      // Show full traveled path
       traveled.geometry.setDrawRange(0, traveled.totalPoints);
       
-      // Normalize t to 0-1 for this phase
       const phaseT = (t - TRAVELED_RATIO) / PREDICTED_RATIO;
       
-      // Apply ease-out only for the last 30% of this phase
       let easedT: number;
       if (phaseT < 0.7) {
-        // Linear for first 70%
         easedT = phaseT / 0.7 * 0.7;
       } else {
-        // Ease-out for last 30%
         const endT = (phaseT - 0.7) / 0.3;
         const eased = 1 - Math.pow(1 - endT, 3);
         easedT = 0.7 + eased * 0.3;
@@ -198,6 +187,7 @@ function CombinedFlightPath({
     }
   });
 
+  // Create line objects (memoized to avoid recreation)
   const traveledLine = useMemo(() => {
     if (!traveled.geometry || !traveled.material) return null;
     return new THREE.Line(traveled.geometry, traveled.material);
@@ -212,10 +202,7 @@ function CombinedFlightPath({
   
   return (
     <group>
-      {/* Solid green line: origin → plane */}
       {traveledLine && <primitive object={traveledLine} />}
-      
-      {/* Dotted green line: plane → destination */}
       {predictedLine && <primitive object={predictedLine} />}
     </group>
   );
@@ -278,6 +265,14 @@ function PredictedPathOnly({ aircraft }: { aircraft: Aircraft }) {
     return { geometry: geo, material: mat, totalPoints: pts.length };
   }, [aircraft]);
   
+  // CRITICAL: Dispose on cleanup
+  useEffect(() => {
+    return () => {
+      geometry?.dispose();
+      material?.dispose();
+    };
+  }, [geometry, material]);
+  
   useEffect(() => {
     if (aircraft.id !== prevAircraftId.current) {
       animationProgress.current = 0;
@@ -294,7 +289,6 @@ function PredictedPathOnly({ aircraft }: { aircraft: Aircraft }) {
     animationProgress.current = Math.min(animationProgress.current + delta / 0.3, 1);
     const t = animationProgress.current;
     
-    // Ease-out only at the end
     let easedT: number;
     if (t < 0.7) {
       easedT = t;
@@ -327,13 +321,11 @@ export function FlightPath({ icao24 }: { icao24: string | null }) {
   const aircraft = useRadarStore((state) => state.aircraft);
   const flightTracks = useRadarStore((state) => state.flightTracks);
   
-  // Only show flight path for aircraft entities
   const hoveredAircraftId = hoveredEntity?.type === 'aircraft' ? hoveredEntity.id : null;
   const selectedAircraftId = selectedEntity?.type === 'aircraft' ? selectedEntity.id : null;
   const displayId = icao24 || hoveredAircraftId || selectedAircraftId;
   const currentAircraft = displayId ? aircraft.find(a => a.id === displayId) : undefined;
   
-  // Get track data directly from the Map (stable reference)
   const track = displayId ? flightTracks.get(displayId) : null;
   const trackData = useMemo(() => {
     if (!track) return null;
@@ -355,11 +347,9 @@ export function FlightPath({ icao24 }: { icao24: string | null }) {
   
   return (
     <group>
-      {/* Combined path with synchronized animation: origin → plane → destination */}
       {hasTrack ? (
         <CombinedFlightPath waypoints={trackData.waypoints} aircraft={currentAircraft} />
       ) : (
-        /* Just predicted path if no track data available */
         <PredictedPathOnly aircraft={currentAircraft} />
       )}
     </group>

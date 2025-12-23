@@ -81,12 +81,13 @@ export function ModeBar({ onModeChange }: ModeBarProps) {
   const buttonRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const [highlightStyle, setHighlightStyle] = useState({ left: 0, width: 0 });
   
-  const counts: Record<string, number> = {
+  // Memoize counts to prevent infinite re-render loop
+  const counts = useMemo<Record<string, number>>(() => ({
     all: aircraft.length + airports.length,
     aircraft: aircraft.length,
     airport: airports.length,
     missile: 0,
-  };
+  }), [aircraft.length, airports.length]);
   
   const selectMode = useCallback((mode: 'all' | 'aircraft' | 'airport' | 'missile') => {
     setActiveMode(mode);

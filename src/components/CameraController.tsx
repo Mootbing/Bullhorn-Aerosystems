@@ -5,20 +5,10 @@ import { useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { useRadarStore } from '@/store/gameStore';
-import { CAMERA, LOCATIONS, GLOBE, INPUT, AIRPORTS } from '@/config/constants';
+import { CAMERA, LOCATIONS, INPUT, AIRPORTS } from '@/config/constants';
 import { useCanvasInput, useInputState } from '@/hooks/useInputManager';
 import { InputAction } from '@/lib/inputManager';
-
-function latLonToVector3(lat: number, lon: number, alt: number = 0): THREE.Vector3 {
-  const r = 1 + alt * GLOBE.ALTITUDE_SCALE;
-  const phi = (90 - lat) * (Math.PI / 180);
-  const theta = (lon + 180) * (Math.PI / 180);
-  return new THREE.Vector3(
-    -r * Math.sin(phi) * Math.cos(theta),
-    r * Math.cos(phi),
-    r * Math.sin(phi) * Math.sin(theta)
-  );
-}
+import { latLonToVector3 } from '@/utils/geo';
 
 export function CameraController() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
