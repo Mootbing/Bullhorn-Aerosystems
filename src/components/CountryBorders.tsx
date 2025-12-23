@@ -1,10 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
+import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
+import { useRadarStore } from '@/store/gameStore';
 
 const EARTH_RADIUS = 1.002;
 const GEOJSON_URL = 'https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json';
+const DRAW_DURATION = 0.8; // seconds to fully draw borders
 
 function latLonToVector3(lat: number, lon: number, radius: number = EARTH_RADIUS): THREE.Vector3 {
   const phi = (90 - lat) * (Math.PI / 180);
@@ -30,7 +33,12 @@ interface GeoJSONData {
 }
 
 export function CountryBorders() {
-  const [lineSegments, setLineSegments] = useState<{ positions: Float32Array } | null>(null);
+  const [lineSegments, setLineSegments] = useState<{ positions: Float32Array; totalSegments: number } | null>(null);
+  const introPhase = useRadarStore((s) => s.introPhase);
+  const geometryRef = useRef<THREE.BufferGeometry>(null);
+  const materialRef = useRef<THREE.LineBasicMaterial>(null);
+  const animationProgress = useRef(0);
+  const animationStarted = useRef(false);
 
   useEffect(() => {
     fetch(GEOJSON_URL)
@@ -66,22 +74,57 @@ export function CountryBorders() {
           }
         });
         
-        setLineSegments({ positions: new Float32Array(allPoints) });
+        const totalSegments = allPoints.length / 6; // Each segment has 2 points * 3 coords
+        setLineSegments({ positions: new Float32Array(allPoints), totalSegments });
       })
       .catch(err => console.error('Failed to load country borders:', err));
   }, []);
+  
+  // Animate draw range
+  useFrame((_, delta) => {
+    if (!geometryRef.current || !lineSegments) return;
+    
+    // Start animation when borders phase begins
+    if (introPhase === 'borders' || introPhase === 'airports' || introPhase === 'aircraft' || introPhase === 'complete') {
+      if (!animationStarted.current) {
+        animationStarted.current = true;
+        animationProgress.current = 0;
+      }
+    }
+    
+    if (!animationStarted.current) {
+      // Before animation, show nothing
+      geometryRef.current.setDrawRange(0, 0);
+      return;
+    }
+    
+    // Animate progress
+    if (animationProgress.current < 1) {
+      animationProgress.current = Math.min(1, animationProgress.current + delta / DRAW_DURATION);
+      
+      // Ease out cubic for smooth draw
+      const eased = 1 - Math.pow(1 - animationProgress.current, 3);
+      const vertexCount = Math.floor(eased * lineSegments.positions.length / 3);
+      geometryRef.current.setDrawRange(0, vertexCount);
+      
+      // Also fade in opacity
+      if (materialRef.current) {
+        materialRef.current.opacity = eased * 0.6;
+      }
+    }
+  });
 
   if (!lineSegments) return null;
 
   return (
     <lineSegments>
-      <bufferGeometry>
+      <bufferGeometry ref={geometryRef}>
         <bufferAttribute
           attach="attributes-position"
           args={[lineSegments.positions, 3]}
         />
       </bufferGeometry>
-      <lineBasicMaterial color="#ffffff" transparent opacity={0.6} />
+      <lineBasicMaterial ref={materialRef} color="#ffffff" transparent opacity={0} />
     </lineSegments>
   );
 }

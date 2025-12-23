@@ -153,6 +153,10 @@ interface Store {
   setViewportBounds: (bounds: ViewportBounds) => void;
   locationReady: boolean;
   setLocationReady: (ready: boolean) => void;
+  
+  // Intro animation phases: 'loading' -> 'borders' -> 'airports' -> 'aircraft' -> 'complete'
+  introPhase: 'loading' | 'borders' | 'airports' | 'aircraft' | 'complete';
+  setIntroPhase: (phase: 'loading' | 'borders' | 'airports' | 'aircraft' | 'complete') => void;
 }
 
 export type { Aircraft, Position, TrackWaypoint, FlightTrack, ViewportBounds, Airport };
@@ -417,6 +421,10 @@ export const useRadarStore = create<Store>((set, get) => ({
   
   locationReady: false,
   setLocationReady: (ready) => set({ locationReady: ready }),
+  
+  // Intro animation
+  introPhase: 'loading',
+  setIntroPhase: (phase) => set({ introPhase: phase }),
   
   fetchAirports: async () => {
     const { airports, airportsLoading } = get();

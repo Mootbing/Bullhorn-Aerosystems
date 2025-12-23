@@ -22,10 +22,53 @@ const LOADING_STAGES = [
   { text: 'SYSTEM_READY', duration: 300 },
 ];
 
+// Intro animation timing (ms)
+const INTRO_TIMING = {
+  BORDERS_DELAY: 200,      // Start borders after loading fade begins
+  BORDERS_DURATION: 800,   // How long borders take to draw
+  AIRPORTS_DELAY: 600,     // Start airports after borders begin
+  AIRPORTS_DURATION: 600,  // How long airports take to appear
+  AIRCRAFT_DELAY: 1000,    // Start aircraft after airports begin
+  AIRCRAFT_DURATION: 800,  // How long aircraft fly-in takes
+};
+
 function LoadingOverlay() {
   const locationReady = useRadarStore((s) => s.locationReady);
+  const setIntroPhase = useRadarStore((s) => s.setIntroPhase);
   const [stageIndex, setStageIndex] = useState(0);
   const [progress, setProgress] = useState(0);
+  
+  // Trigger intro animation phases when loading completes
+  useEffect(() => {
+    if (!locationReady) return;
+    
+    // Start borders animation
+    const bordersTimer = setTimeout(() => {
+      setIntroPhase('borders');
+    }, INTRO_TIMING.BORDERS_DELAY);
+    
+    // Start airports animation
+    const airportsTimer = setTimeout(() => {
+      setIntroPhase('airports');
+    }, INTRO_TIMING.BORDERS_DELAY + INTRO_TIMING.AIRPORTS_DELAY);
+    
+    // Start aircraft animation
+    const aircraftTimer = setTimeout(() => {
+      setIntroPhase('aircraft');
+    }, INTRO_TIMING.BORDERS_DELAY + INTRO_TIMING.AIRPORTS_DELAY + INTRO_TIMING.AIRCRAFT_DELAY);
+    
+    // Complete animation
+    const completeTimer = setTimeout(() => {
+      setIntroPhase('complete');
+    }, INTRO_TIMING.BORDERS_DELAY + INTRO_TIMING.AIRPORTS_DELAY + INTRO_TIMING.AIRCRAFT_DELAY + INTRO_TIMING.AIRCRAFT_DURATION);
+    
+    return () => {
+      clearTimeout(bordersTimer);
+      clearTimeout(airportsTimer);
+      clearTimeout(aircraftTimer);
+      clearTimeout(completeTimer);
+    };
+  }, [locationReady, setIntroPhase]);
   
   // Cycle through loading stages
   useEffect(() => {
@@ -45,10 +88,7 @@ function LoadingOverlay() {
   
   // Animate progress
   useEffect(() => {
-    if (locationReady) {
-      setProgress(100);
-      return;
-    }
+    if (locationReady) return;
     
     const interval = setInterval(() => {
       setProgress(prev => {
@@ -62,6 +102,9 @@ function LoadingOverlay() {
     
     return () => clearInterval(interval);
   }, [stageIndex, locationReady]);
+  
+  // Set progress to 100 when location is ready (computed value, not in effect)
+  const displayProgress = locationReady ? 100 : progress;
   
   const currentStage = LOADING_STAGES[stageIndex] || LOADING_STAGES[LOADING_STAGES.length - 1];
   
@@ -88,7 +131,7 @@ function LoadingOverlay() {
             {/* White overlay that reveals left to right */}
             <div 
               className="absolute top-0 left-0 text-white overflow-hidden whitespace-nowrap"
-              style={{ width: `${progress}%` }}
+              style={{ width: `${displayProgress}%` }}
             >
               BULLHORN AEROSYSTEMS
             </div>
@@ -97,7 +140,7 @@ function LoadingOverlay() {
         
         {/* Status line: stage text - percentage - absolutely positioned */}
         <div className="absolute bottom-0 left-0 right-0 text-center text-[10px] text-[#555] tracking-[0.15em]">
-          {currentStage.text} — {Math.floor(progress)}%
+          {currentStage.text} — {Math.floor(displayProgress)}%
         </div>
       </div>
     </div>

@@ -166,6 +166,9 @@ const triangleGeometry = (() => {
 // Threshold for switching to simple triangles (LOD)
 const LOD_THRESHOLD = AIRCRAFT.LOD_THRESHOLD;
 
+const FLY_IN_DURATION = 0.8; // seconds
+const FLY_IN_DISTANCE = 0.3; // How far off-screen to start
+
 export function AircraftDot({ aircraft, onClick }: { aircraft: Aircraft; onClick?: () => void }) {
   const groupRef = useRef<THREE.Group>(null);
   const meshRef = useRef<THREE.Mesh>(null);
@@ -174,6 +177,7 @@ export function AircraftDot({ aircraft, onClick }: { aircraft: Aircraft; onClick
   const hoverEntity = useRadarStore((state) => state.hoverEntity);
   const viewportBounds = useRadarStore((state) => state.viewportBounds);
   const aircraftCount = useRadarStore((state) => state.aircraft.length);
+  const introPhase = useRadarStore((state) => state.introPhase);
   const isSelected = selectedEntity?.type === 'aircraft' && selectedEntity.id === aircraft.id;
   const isHovered = hoveredEntity?.type === 'aircraft' && hoveredEntity.id === aircraft.id;
   const useSimpleMode = aircraftCount > LOD_THRESHOLD;
@@ -181,6 +185,11 @@ export function AircraftDot({ aircraft, onClick }: { aircraft: Aircraft; onClick
   const currentOpacity = useRef(0); // Start invisible, fade in
   const targetOpacity = useRef(1);
   const hasAppeared = useRef(false);
+  
+  // Fly-in animation state
+  const flyInProgress = useRef(0);
+  const flyInStarted = useRef(false);
+  const flyInStartPos = useRef<THREE.Vector3 | null>(null);
   
   const initialPos = latLonToVector3(aircraft.position.latitude, aircraft.position.longitude, aircraft.position.altitude);
   const initialQuat = getAircraftOrientation(aircraft.position.latitude, aircraft.position.longitude, aircraft.position.heading);
@@ -285,10 +294,44 @@ export function AircraftDot({ aircraft, onClick }: { aircraft: Aircraft; onClick
   useFrame((state, delta) => {
     if (!groupRef.current) return;
     
+    // Handle fly-in animation
+    const canFlyIn = introPhase === 'aircraft' || introPhase === 'complete';
+    
+    if (canFlyIn && !flyInStarted.current) {
+      flyInStarted.current = true;
+      flyInProgress.current = 0;
+      
+      // Calculate start position: behind the aircraft based on its heading
+      const headingRad = aircraft.position.heading * (Math.PI / 180);
+      // Offset in the opposite direction of travel
+      const offsetLat = -Math.cos(headingRad) * FLY_IN_DISTANCE * 50; // In degrees
+      const offsetLon = -Math.sin(headingRad) * FLY_IN_DISTANCE * 50;
+      
+      flyInStartPos.current = latLonToVector3(
+        aircraft.position.latitude + offsetLat,
+        aircraft.position.longitude + offsetLon,
+        aircraft.position.altitude
+      );
+    }
+    
+    // Animate fly-in progress
+    if (flyInStarted.current && flyInProgress.current < 1) {
+      flyInProgress.current = Math.min(1, flyInProgress.current + delta / FLY_IN_DURATION);
+    }
+    
+    // Before animation starts, hide aircraft
+    if (!flyInStarted.current) {
+      groupRef.current.visible = false;
+      return;
+    }
+    
+    groupRef.current.visible = true;
+    
     // Dead reckoning: predict position based on elapsed time since last server update
     const elapsedSeconds = (Date.now() - lastServerTime.current) / 1000;
     
-    // Predict new position if plane is moving (speed > 10 knots)
+    // Calculate target position (with dead reckoning if moving)
+    let finalTargetPos: THREE.Vector3;
     if (lastServerSpeed.current > 10 && elapsedSeconds < 120) {
       const predicted = predictPosition(
         lastServerLat.current,
@@ -297,15 +340,21 @@ export function AircraftDot({ aircraft, onClick }: { aircraft: Aircraft; onClick
         lastServerSpeed.current,
         elapsedSeconds
       );
-      
-      // Directly set position to predicted (no lerping for prediction)
-      const predictedPos = latLonToVector3(predicted.lat, predicted.lon, lastServerAlt.current);
-      groupRef.current.position.copy(predictedPos);
-      currentPos.current.copy(predictedPos);
+      finalTargetPos = latLonToVector3(predicted.lat, predicted.lon, lastServerAlt.current);
     } else {
-      // Stationary planes: just use server position
-      groupRef.current.position.copy(targetPos.current);
-      currentPos.current.copy(targetPos.current);
+      finalTargetPos = targetPos.current.clone();
+    }
+    
+    // Apply fly-in interpolation
+    if (flyInProgress.current < 1 && flyInStartPos.current) {
+      // Ease out cubic for deceleration effect
+      const eased = 1 - Math.pow(1 - flyInProgress.current, 3);
+      const flyInPos = flyInStartPos.current.clone().lerp(finalTargetPos, eased);
+      groupRef.current.position.copy(flyInPos);
+      currentPos.current.copy(flyInPos);
+    } else {
+      groupRef.current.position.copy(finalTargetPos);
+      currentPos.current.copy(finalTargetPos);
     }
     
     // Update sync marker to show last server position

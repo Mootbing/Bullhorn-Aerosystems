@@ -17,6 +17,8 @@ function latLonToVector3(lat: number, lon: number): THREE.Vector3 {
   );
 }
 
+const AIRPORT_ANIM_DURATION = 0.6; // seconds
+
 // Instanced mesh for large airports with hover support
 function LargeAirportsInstanced({ airports }: { airports: Airport[] }) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
@@ -24,6 +26,10 @@ function LargeAirportsInstanced({ airports }: { airports: Airport[] }) {
   const selectEntity = useRadarStore((state) => state.selectEntity);
   const hoveredEntity = useRadarStore((state) => state.gameState.hoveredEntity);
   const hoveredAirport = hoveredEntity?.type === 'airport' ? hoveredEntity.id : null;
+  const introPhase = useRadarStore((state) => state.introPhase);
+  
+  const animationProgress = useRef(0);
+  const animationStarted = useRef(false);
   
   const positions = useMemo(() => {
     return airports.map(airport => latLonToVector3(airport.lat, airport.lon));
@@ -34,8 +40,29 @@ function LargeAirportsInstanced({ airports }: { airports: Airport[] }) {
     return airports.map(a => a.icao);
   }, [airports]);
   
-  useEffect(() => {
+  // Update instance matrices with scale animation
+  useFrame((_, delta) => {
     if (!meshRef.current || positions.length === 0) return;
+    
+    // Start animation when airports phase begins
+    if (introPhase === 'airports' || introPhase === 'aircraft' || introPhase === 'complete') {
+      if (!animationStarted.current) {
+        animationStarted.current = true;
+        animationProgress.current = 0;
+      }
+    }
+    
+    // Animate progress
+    if (animationStarted.current && animationProgress.current < 1) {
+      animationProgress.current = Math.min(1, animationProgress.current + delta / AIRPORT_ANIM_DURATION);
+    }
+    
+    // Ease out back for pop effect
+    const t = animationProgress.current;
+    const eased = animationStarted.current 
+      ? 1 - Math.pow(1 - t, 3) * (1 + 2.5 * (1 - t))  // Overshoot ease
+      : 0;
+    const scale = Math.max(0, Math.min(1.1, eased)); // Slight overshoot then settle
     
     const dummy = new THREE.Object3D();
     const up = new THREE.Vector3(0, 0, 1);
@@ -44,11 +71,16 @@ function LargeAirportsInstanced({ airports }: { airports: Airport[] }) {
       dummy.position.copy(pos);
       const normal = pos.clone().normalize();
       dummy.quaternion.setFromUnitVectors(up, normal);
+      dummy.scale.setScalar(scale);
       dummy.updateMatrix();
       meshRef.current!.setMatrixAt(i, dummy.matrix);
     });
     meshRef.current.instanceMatrix.needsUpdate = true;
-  }, [positions]);
+    
+    // Also update material opacity
+    const material = meshRef.current.material as THREE.MeshBasicMaterial;
+    material.opacity = Math.min(0.9, eased);
+  });
   
   // Update colors based on hover state
   useEffect(() => {
@@ -104,7 +136,7 @@ function LargeAirportsInstanced({ airports }: { airports: Airport[] }) {
       <meshBasicMaterial 
         color="#ffffff" 
         transparent 
-        opacity={0.9}
+        opacity={0}
         side={THREE.DoubleSide}
         depthWrite={false}
       />
@@ -120,6 +152,10 @@ function SmallAirportsInstanced({ airports }: { airports: Airport[] }) {
   const selectEntity = useRadarStore((state) => state.selectEntity);
   const hoveredEntity = useRadarStore((state) => state.gameState.hoveredEntity);
   const hoveredAirport = hoveredEntity?.type === 'airport' ? hoveredEntity.id : null;
+  const introPhase = useRadarStore((state) => state.introPhase);
+  
+  const animationProgress = useRef(0);
+  const animationStarted = useRef(false);
   
   const positions = useMemo(() => {
     return airports.map(airport => latLonToVector3(airport.lat, airport.lon));
@@ -128,22 +164,6 @@ function SmallAirportsInstanced({ airports }: { airports: Airport[] }) {
   const indexToIcao = useMemo(() => {
     return airports.map(a => a.icao);
   }, [airports]);
-  
-  useEffect(() => {
-    if (!meshRef.current || positions.length === 0) return;
-    
-    const dummy = new THREE.Object3D();
-    const up = new THREE.Vector3(0, 0, 1);
-    
-    positions.forEach((pos, i) => {
-      dummy.position.copy(pos);
-      const normal = pos.clone().normalize();
-      dummy.quaternion.setFromUnitVectors(up, normal);
-      dummy.updateMatrix();
-      meshRef.current!.setMatrixAt(i, dummy.matrix);
-    });
-    meshRef.current.instanceMatrix.needsUpdate = true;
-  }, [positions]);
   
   // Update colors based on hover state
   useEffect(() => {
@@ -165,11 +185,43 @@ function SmallAirportsInstanced({ airports }: { airports: Airport[] }) {
     }
   }, [hoveredAirport, airports.length, indexToIcao]);
   
-  useFrame(() => {
-    if (!meshRef.current) return;
+  useFrame((_, delta) => {
+    if (!meshRef.current || positions.length === 0) return;
     
+    // Start animation when airports phase begins
+    if (introPhase === 'airports' || introPhase === 'aircraft' || introPhase === 'complete') {
+      if (!animationStarted.current) {
+        animationStarted.current = true;
+        animationProgress.current = 0;
+      }
+    }
+    
+    // Animate progress
+    if (animationStarted.current && animationProgress.current < 1) {
+      animationProgress.current = Math.min(1, animationProgress.current + delta / AIRPORT_ANIM_DURATION);
+    }
+    
+    // Ease out for scale
+    const t = animationProgress.current;
+    const eased = animationStarted.current ? 1 - Math.pow(1 - t, 3) : 0;
+    const scale = eased;
+    
+    // Update instance matrices with scale
+    const dummy = new THREE.Object3D();
+    const up = new THREE.Vector3(0, 0, 1);
+    
+    positions.forEach((pos, i) => {
+      dummy.position.copy(pos);
+      const normal = pos.clone().normalize();
+      dummy.quaternion.setFromUnitVectors(up, normal);
+      dummy.scale.setScalar(scale);
+      dummy.updateMatrix();
+      meshRef.current!.setMatrixAt(i, dummy.matrix);
+    });
+    meshRef.current.instanceMatrix.needsUpdate = true;
+    
+    // Opacity logic
     const cameraDistance = camera.position.length();
-    // Only show when very zoomed in
     const baseOpacity = Math.max(0, Math.min(1, (AIRPORTS.SMALL_AIRPORT_FADE_DISTANCE - cameraDistance) * AIRPORTS.SMALL_AIRPORT_FADE_SPEED));
     
     const material = meshRef.current.material as THREE.MeshBasicMaterial;
@@ -177,11 +229,11 @@ function SmallAirportsInstanced({ airports }: { airports: Airport[] }) {
     // If any small airport is hovered, make layer fully visible
     const isHovered = hoveredAirport && indexToIcao.includes(hoveredAirport);
     if (isHovered) {
-      material.opacity = 1.0;
-      meshRef.current.visible = true;
+      material.opacity = eased;
+      meshRef.current.visible = eased > 0.01;
     } else {
-      material.opacity = baseOpacity * AIRPORTS.SMALL_AIRPORT_MAX_OPACITY;
-      meshRef.current.visible = baseOpacity > 0.01;
+      material.opacity = baseOpacity * AIRPORTS.SMALL_AIRPORT_MAX_OPACITY * eased;
+      meshRef.current.visible = baseOpacity > 0.01 && eased > 0.01;
     }
   });
   
