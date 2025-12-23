@@ -206,7 +206,8 @@ function SmallAirportsInstanced({ airports }: { airports: Airport[] }) {
       onPointerOut={handlePointerOut}
       onClick={handleClick}
     >
-      <circleGeometry args={[0.001, 8]} />
+      {/* Simple square geometry - minimal triangles for performance */}
+      <planeGeometry args={[0.0012, 0.0012]} />
       <meshBasicMaterial 
         color="#ffffff" 
         transparent 

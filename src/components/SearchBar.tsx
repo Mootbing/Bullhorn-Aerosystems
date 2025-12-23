@@ -259,6 +259,7 @@ export function SearchBar() {
     if (e.key === 'Enter' && results.length > 0) {
       e.preventDefault();
       handleSelect(results[selectedIndex]);
+      inputRef.current?.blur();
     } else if (e.key === 'ArrowDown' && showResults) {
       e.preventDefault();
       setSelectedIndex(i => Math.min(i + 1, results.length - 1));
@@ -266,7 +267,10 @@ export function SearchBar() {
       e.preventDefault();
       setSelectedIndex(i => Math.max(i - 1, 0));
     } else if (e.key === 'Escape') {
+      e.preventDefault();
       setShowResults(false);
+      setQuery('');
+      inputRef.current?.blur();
     }
   }, [results, selectedIndex, showResults, handleSelect]);
 

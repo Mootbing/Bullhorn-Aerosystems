@@ -119,8 +119,6 @@ export function DataPoller() {
   const setAircraft = useRadarStore((state) => state.setAircraft);
   const aircraft = useRadarStore((state) => state.aircraft);
   const viewportBounds = useRadarStore((state) => state.viewportBounds);
-  const selectedEntity = useRadarStore((state) => state.gameState.selectedEntity);
-  const selectedAircraft = selectedEntity?.type === 'aircraft' ? selectedEntity.id : null;
   const locationReady = useRadarStore((state) => state.locationReady);
   
   const hasInitialized = useRef(false);
@@ -208,9 +206,14 @@ export function DataPoller() {
           mergedAircraft.set(id, ac);
         });
         
+        // Get the CURRENT selected aircraft from store (not stale closure value)
+        // This fixes the bug where selecting an aircraft during a fetch would lose it
+        const currentSelectedEntity = useRadarStore.getState().gameState.selectedEntity;
+        const currentSelectedAircraft = currentSelectedEntity?.type === 'aircraft' ? currentSelectedEntity.id : null;
+        
         // Keep selected aircraft from cache if not in new data
-        if (selectedAircraft && cachedAircraft.current.has(selectedAircraft) && !newAircraft.has(selectedAircraft)) {
-          mergedAircraft.set(selectedAircraft, cachedAircraft.current.get(selectedAircraft)!);
+        if (currentSelectedAircraft && cachedAircraft.current.has(currentSelectedAircraft) && !newAircraft.has(currentSelectedAircraft)) {
+          mergedAircraft.set(currentSelectedAircraft, cachedAircraft.current.get(currentSelectedAircraft)!);
         }
         
         // Update cache
@@ -247,7 +250,7 @@ export function DataPoller() {
         console.log('[DataPoller] Keeping existing', aircraft.length, 'aircraft');
       }
     }
-  }, [isPolling, setAircraft, aircraft.length, selectedAircraft]);
+  }, [isPolling, setAircraft, aircraft.length]);
   
   // Initial fetch - only when location is ready and we have viewport bounds
   useEffect(() => {

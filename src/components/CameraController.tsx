@@ -83,6 +83,7 @@ export function CameraController() {
   const aircraft = useRadarStore((state) => state.aircraft);
   const airports = useRadarStore((state) => state.airports);
   const setLocationReady = useRadarStore((state) => state.setLocationReady);
+  const hoverEntity = useRadarStore((state) => state.hoverEntity);
   
   // Get selected IDs by type
   const selectedAircraftId = selectedEntity?.type === 'aircraft' ? selectedEntity.id : null;
@@ -128,17 +129,51 @@ export function CameraController() {
   // Shift key tracking (for chase view to know when to pause following)
   const isShiftHeld = useRef(false);
   
+  // Zoom key tracking (- to zoom out, = to zoom in)
+  const isZoomInHeld = useRef(false);
+  const isZoomOutHeld = useRef(false);
+  
+  // Arrow key tracking for freecam
+  const arrowKeysHeld = useRef({ up: false, down: false, left: false, right: false });
+  const wasFreecamActive = useRef(false);
+  
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Skip if another component already handled this (e.g. mode menu)
+      if (e.defaultPrevented) return;
+      
       if (e.key === 'Shift') {
         isShiftHeld.current = true;
       }
+      if (e.key === '=' || e.key === '+') {
+        isZoomInHeld.current = true;
+      }
+      if (e.key === '-' || e.key === '_') {
+        isZoomOutHeld.current = true;
+      }
+      if (e.key === 'ArrowUp') arrowKeysHeld.current.up = true;
+      if (e.key === 'ArrowDown') arrowKeysHeld.current.down = true;
+      if (e.key === 'ArrowLeft') arrowKeysHeld.current.left = true;
+      if (e.key === 'ArrowRight') arrowKeysHeld.current.right = true;
     };
     
     const handleKeyUp = (e: KeyboardEvent) => {
+      // Skip if another component already handled this (e.g. mode menu)
+      if (e.defaultPrevented) return;
+      
       if (e.key === 'Shift') {
         isShiftHeld.current = false;
       }
+      if (e.key === '=' || e.key === '+') {
+        isZoomInHeld.current = false;
+      }
+      if (e.key === '-' || e.key === '_') {
+        isZoomOutHeld.current = false;
+      }
+      if (e.key === 'ArrowUp') arrowKeysHeld.current.up = false;
+      if (e.key === 'ArrowDown') arrowKeysHeld.current.down = false;
+      if (e.key === 'ArrowLeft') arrowKeysHeld.current.left = false;
+      if (e.key === 'ArrowRight') arrowKeysHeld.current.right = false;
     };
     
     window.addEventListener('keydown', handleKeyDown);
@@ -368,13 +403,13 @@ export function CameraController() {
         const speedDegPerMin = (speed / 60) / 60;
         const pathLength3D = (speedDegPerMin * 25) * 0.017; // 15 min past + 10 min future
         
-        // Camera distance: close enough to see detail, far enough to see full path
-        const viewDistance = Math.max(0.08, Math.min(0.25, pathLength3D * 1.5 + 0.05));
+        // Camera distance: very close to the aircraft for intimate follow cam
+        const viewDistance = Math.max(0.03, Math.min(0.08, pathLength3D * 0.8 + 0.02));
         
-        // Position camera directly behind and above the aircraft (centered view)
+        // Position camera directly behind and above the aircraft (tight chase view)
         const cameraOffset = new THREE.Vector3()
-          .add(up.clone().multiplyScalar(viewDistance * 0.6))
-          .add(forward.clone().multiplyScalar(-viewDistance * 0.8));
+          .add(up.clone().multiplyScalar(viewDistance * 0.4))
+          .add(forward.clone().multiplyScalar(-viewDistance * 0.6));
         
         const cameraPos = aircraftPos.clone().add(cameraOffset);
         
@@ -519,7 +554,12 @@ export function CameraController() {
       // Update look-at to predicted position
       controlsRef.current.target.copy(predictedAircraftPos);
       currentTarget.current.copy(predictedAircraftPos);
+      
+      // Disable rotation during chase view to prevent drift from damping
+      controlsRef.current.enableRotate = false;
     } else {
+      // Re-enable rotation when not in chase view
+      controlsRef.current.enableRotate = true;
       const distFromCenter = camera.position.length();
       if (distFromCenter < MIN_CAMERA_DISTANCE) {
         camera.position.normalize().multiplyScalar(MIN_CAMERA_DISTANCE);
@@ -530,6 +570,86 @@ export function CameraController() {
     const cameraDistance = camera.position.length();
     const zoomBasedRotateSpeed = Math.max(0.08, Math.min(0.8, (cameraDistance - 1) * 0.2));
     controlsRef.current.rotateSpeed = zoomBasedRotateSpeed;
+    
+    // Keyboard zoom with - and = keys
+    const zoomSpeed = 1.5 * delta; // Zoom speed per second
+    if (isZoomInHeld.current || isZoomOutHeld.current) {
+      const zoomDirection = isZoomInHeld.current ? -1 : 1; // Negative = closer
+      const currentDist = camera.position.length();
+      const newDist = Math.max(0.15, Math.min(5, currentDist + zoomDirection * zoomSpeed));
+      
+      // Scale camera position to new distance
+      camera.position.normalize().multiplyScalar(newDist);
+      
+      // Also update camera offset if following an aircraft
+      if (selectedId && currentCameraOffset.current.lengthSq() > 0) {
+        const offsetDist = currentCameraOffset.current.length();
+        const newOffsetDist = Math.max(0.02, offsetDist + zoomDirection * zoomSpeed * 0.5);
+        currentCameraOffset.current.normalize().multiplyScalar(newOffsetDist);
+      }
+    }
+    
+    // Shift + Arrow keys for freecam movement
+    const arrows = arrowKeysHeld.current;
+    const isFreecamActive = isShiftHeld.current && (arrows.up || arrows.down || arrows.left || arrows.right);
+    
+    if (isFreecamActive) {
+      const panSpeed = 0.3 * delta; // Pan speed per second
+      
+      // Get camera's right and up vectors for screen-space movement
+      const cameraRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+      const cameraUp = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+      
+      // Calculate movement direction
+      const movement = new THREE.Vector3();
+      if (arrows.right) movement.add(cameraRight.clone().multiplyScalar(panSpeed));
+      if (arrows.left) movement.add(cameraRight.clone().multiplyScalar(-panSpeed));
+      if (arrows.up) movement.add(cameraUp.clone().multiplyScalar(panSpeed));
+      if (arrows.down) movement.add(cameraUp.clone().multiplyScalar(-panSpeed));
+      
+      // Apply movement to camera position
+      camera.position.add(movement);
+      
+      // Keep camera at consistent distance from globe center
+      const targetDist = cameraDistance;
+      camera.position.normalize().multiplyScalar(targetDist);
+      
+      // Update controls target to stay centered on globe
+      controlsRef.current.target.set(0, 0, 0);
+    }
+    
+    // When freecam stops, hover the closest entity to screen center
+    if (wasFreecamActive.current && !isFreecamActive && airports.length > 0) {
+      // Get the point on globe that camera is looking at (screen center)
+      const cameraDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+      const lookPoint = camera.position.clone().add(cameraDir);
+      lookPoint.normalize();
+      
+      // Convert to lat/lon
+      const lookLat = 90 - Math.acos(lookPoint.y) * (180 / Math.PI);
+      const lookLon = Math.atan2(lookPoint.z, -lookPoint.x) * (180 / Math.PI) - 180;
+      
+      // Find closest airport
+      let closestAirport = null;
+      let closestDist = Infinity;
+      
+      for (const airport of airports) {
+        const latDiff = airport.lat - lookLat;
+        const lonDiff = airport.lon - lookLon;
+        const dist = latDiff * latDiff + lonDiff * lonDiff;
+        if (dist < closestDist) {
+          closestDist = dist;
+          closestAirport = airport;
+        }
+      }
+      
+      // Hover if close to center (within ~5 degrees)
+      if (closestAirport && closestDist < 25) {
+        hoverEntity({ type: 'airport', id: closestAirport.icao });
+      }
+    }
+    
+    wasFreecamActive.current = isFreecamActive;
     
     controlsRef.current.update();
   });
