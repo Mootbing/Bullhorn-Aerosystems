@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useRadarStore } from '@/store/gameStore';
@@ -31,8 +31,6 @@ export function CountryBorders() {
   const introPhase = useRadarStore((s) => s.introPhase);
   const loadingProgress = useRadarStore((s) => s.loadingProgress);
   
-  const geometryRef = useRef<THREE.BufferGeometry | null>(null);
-  const materialRef = useRef<THREE.LineBasicMaterial | null>(null);
   const fadeStartTime = useRef<number | null>(null);
 
   // Load bundled GeoJSON on mount
@@ -85,15 +83,14 @@ export function CountryBorders() {
     };
   }, []);
   
-  // Create geometry and material when data is ready
-  useEffect(() => {
-    if (!lineData) return;
+  // Create geometry and material when data is ready - useMemo for stable references
+  const threeObjects = useMemo(() => {
+    if (!lineData) return null;
     
     // Create geometry
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(lineData.positions, 3));
     geometry.setDrawRange(0, 0); // Start hidden
-    geometryRef.current = geometry;
     
     // Create material
     const material = new THREE.LineBasicMaterial({
@@ -101,24 +98,29 @@ export function CountryBorders() {
       transparent: true,
       opacity: 0,
     });
-    materialRef.current = material;
     
-    // Cleanup on unmount
-    return () => {
-      geometry.dispose();
-      material.dispose();
-      geometryRef.current = null;
-      materialRef.current = null;
-    };
+    return { geometry, material };
   }, [lineData]);
+  
+  // Cleanup geometry and material on unmount
+  useEffect(() => {
+    return () => {
+      if (threeObjects) {
+        threeObjects.geometry.dispose();
+        threeObjects.material.dispose();
+      }
+    };
+  }, [threeObjects]);
   
   // Animate draw range synced to loading progress
   useFrame((state) => {
-    if (!geometryRef.current || !lineData) return;
+    if (!threeObjects || !lineData) return;
+    
+    const { geometry, material } = threeObjects;
     
     // Only animate when borders phase is active
     if (introPhase !== 'borders' && introPhase !== 'airports' && introPhase !== 'aircraft' && introPhase !== 'complete') {
-      geometryRef.current.setDrawRange(0, 0);
+      geometry.setDrawRange(0, 0);
       return;
     }
     
@@ -128,33 +130,34 @@ export function CountryBorders() {
     // Ease out cubic for smooth draw
     const eased = 1 - Math.pow(1 - progress, 3);
     const vertexCount = Math.floor(eased * lineData.positions.length / 3);
-    geometryRef.current.setDrawRange(0, vertexCount);
+    geometry.setDrawRange(0, vertexCount);
     
     // Two-phase opacity: 10% while drawing, then fade to 50% after complete
-    if (materialRef.current) {
-      if (progress < 1) {
-        // Drawing phase: keep at low opacity
-        materialRef.current.opacity = BORDERS.DRAW_OPACITY;
-        fadeStartTime.current = null;
-      } else {
-        // Drawing complete: fade from DRAW_OPACITY to FINAL_OPACITY
-        if (fadeStartTime.current === null) {
-          fadeStartTime.current = state.clock.elapsedTime;
-        }
-        
-        const fadeElapsed = state.clock.elapsedTime - fadeStartTime.current;
-        const fadeProgress = Math.min(1, fadeElapsed / BORDERS.FADE_IN_DURATION);
-        
-        // Ease out for smooth fade
-        const fadeEased = 1 - Math.pow(1 - fadeProgress, 2);
-        materialRef.current.opacity = BORDERS.DRAW_OPACITY + (BORDERS.FINAL_OPACITY - BORDERS.DRAW_OPACITY) * fadeEased;
+    // Three.js objects are intentionally mutable in useFrame
+    /* eslint-disable react-hooks/immutability */
+    if (progress < 1) {
+      // Drawing phase: keep at low opacity
+      material.opacity = BORDERS.DRAW_OPACITY;
+      fadeStartTime.current = null;
+    } else {
+      // Drawing complete: fade from DRAW_OPACITY to FINAL_OPACITY
+      if (fadeStartTime.current === null) {
+        fadeStartTime.current = state.clock.elapsedTime;
       }
+      
+      const fadeElapsed = state.clock.elapsedTime - fadeStartTime.current;
+      const fadeProgress = Math.min(1, fadeElapsed / BORDERS.FADE_IN_DURATION);
+      
+      // Ease out for smooth fade
+      const fadeEased = 1 - Math.pow(1 - fadeProgress, 2);
+      material.opacity = BORDERS.DRAW_OPACITY + (BORDERS.FINAL_OPACITY - BORDERS.DRAW_OPACITY) * fadeEased;
     }
+    /* eslint-enable react-hooks/immutability */
   });
 
-  if (!lineData || !geometryRef.current || !materialRef.current) return null;
+  if (!threeObjects) return null;
 
   return (
-    <lineSegments geometry={geometryRef.current} material={materialRef.current} />
+    <lineSegments geometry={threeObjects.geometry} material={threeObjects.material} />
   );
 }

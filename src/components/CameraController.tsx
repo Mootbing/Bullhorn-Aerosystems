@@ -62,6 +62,14 @@ export function CameraController() {
   const isReturningToEarth = useRef(false);
   const hasInitializedLocation = useRef(false);
   const [initialLocation, setInitialLocation] = useState<{ lat: number; lon: number } | null>(null);
+  const [controlsReady, setControlsReady] = useState(false);
+  
+  // Mark controls as ready when ref is set (check on each frame until ready)
+  useFrame(() => {
+    if (!controlsReady && controlsRef.current) {
+      setControlsReady(true);
+    }
+  });
   
   // Save camera state before selecting an aircraft so we can return to it
   const savedCameraPosition = useRef(new THREE.Vector3());
@@ -395,7 +403,7 @@ export function CameraController() {
   
   // Set initial camera position when location is determined - animate instead of teleport
   useEffect(() => {
-    if (!initialLocation || !controlsRef.current) return;
+    if (!initialLocation || !controlsReady || !controlsRef.current) return;
     
     const targetPoint = latLonToVector3(initialLocation.lat, initialLocation.lon, 0);
     const cameraDirection = targetPoint.clone().normalize();
@@ -413,7 +421,7 @@ export function CameraController() {
     
     // Signal that location is ready - allow data fetching to begin
     setLocationReady(true);
-  }, [initialLocation, camera, setLocationReady]);
+  }, [initialLocation, controlsReady, camera, setLocationReady]);
   
   // Focus on a specific location (from search, etc.) - flyover animation
   const prevFocusLocation = useRef<{ lat: number; lon: number } | null>(null);
