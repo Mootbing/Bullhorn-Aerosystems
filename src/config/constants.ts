@@ -153,8 +153,8 @@ export const INPUT = {
   
   // Animation speeds
   ANIMATION: {
-    CAMERA_DIRECT_SPEED: 1.2,     // Direct animation speed multiplier
-    CAMERA_FLYOVER_SPEED: 0.8,    // Flyover animation speed multiplier
+    CAMERA_DIRECT_SPEED: 3.0,     // Direct animation speed multiplier (fast, snappy)
+    CAMERA_FLYOVER_SPEED: 2.0,    // Flyover animation speed multiplier
     FLYOVER_TRAVEL_THRESHOLD: 0.3, // Min distance to trigger flyover
     OFFSET_ZOOM_MULTIPLIER: 0.5,  // How fast offset zooms relative to camera
     MIN_OFFSET_DISTANCE: 0.02,    // Minimum camera offset distance

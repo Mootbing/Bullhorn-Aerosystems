@@ -72,6 +72,7 @@ export function CameraController() {
   const selectedEntity = useRadarStore((state) => state.gameState.selectedEntity);
   const focusLocation = useRadarStore((state) => state.gameState.focusLocation);
   const restoreCameraFlag = useRadarStore((state) => state.gameState.restoreCameraFlag);
+  const activeMode = useRadarStore((state) => state.gameState.activeMode);
   const aircraft = useRadarStore((state) => state.aircraft);
   const airports = useRadarStore((state) => state.airports);
   const setLocationReady = useRadarStore((state) => state.setLocationReady);
@@ -130,7 +131,7 @@ export function CameraController() {
   const arrowKeysHeld = useRef({ up: false, down: false, left: false, right: false });
   const wasMovingWithArrows = useRef(false);
   
-  // Helper to find nearest entity to camera center
+  // Helper to find nearest entity to camera center (respects activeMode)
   const findNearestEntity = () => {
     // Get current camera look point
     const cameraDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
@@ -143,34 +144,38 @@ export function CameraController() {
     let bestEntity: { type: 'airport' | 'aircraft'; lat: number; lon: number; id: string } | null = null;
     let bestDist = Infinity;
     
-    // Check airports
-    for (const airport of airports) {
-      const latDiff = airport.lat - lookLat;
-      const lonDiff = airport.lon - lookLon;
-      const dist = Math.sqrt(latDiff * latDiff + lonDiff * lonDiff);
-      
-      if (dist < bestDist && dist < 15) { // Within 15 degrees
-        bestDist = dist;
-        bestEntity = { type: 'airport', lat: airport.lat, lon: airport.lon, id: airport.icao };
+    // Check airports if mode allows
+    if (activeMode === 'all' || activeMode === 'airport') {
+      for (const airport of airports) {
+        const latDiff = airport.lat - lookLat;
+        const lonDiff = airport.lon - lookLon;
+        const dist = Math.sqrt(latDiff * latDiff + lonDiff * lonDiff);
+        
+        if (dist < bestDist && dist < 15) { // Within 15 degrees
+          bestDist = dist;
+          bestEntity = { type: 'airport', lat: airport.lat, lon: airport.lon, id: airport.icao };
+        }
       }
     }
     
-    // Check aircraft
-    for (const ac of aircraft) {
-      const latDiff = ac.position.latitude - lookLat;
-      const lonDiff = ac.position.longitude - lookLon;
-      const dist = Math.sqrt(latDiff * latDiff + lonDiff * lonDiff);
-      
-      if (dist < bestDist && dist < 15) { // Within 15 degrees
-        bestDist = dist;
-        bestEntity = { type: 'aircraft', lat: ac.position.latitude, lon: ac.position.longitude, id: ac.id };
+    // Check aircraft if mode allows
+    if (activeMode === 'all' || activeMode === 'aircraft') {
+      for (const ac of aircraft) {
+        const latDiff = ac.position.latitude - lookLat;
+        const lonDiff = ac.position.longitude - lookLon;
+        const dist = Math.sqrt(latDiff * latDiff + lonDiff * lonDiff);
+        
+        if (dist < bestDist && dist < 15) { // Within 15 degrees
+          bestDist = dist;
+          bestEntity = { type: 'aircraft', lat: ac.position.latitude, lon: ac.position.longitude, id: ac.id };
+        }
       }
     }
     
     return bestEntity;
   };
   
-  // Helper to find nearest entity in a direction
+  // Helper to find nearest entity in a direction (respects activeMode)
   const findEntityInDirection = (direction: 'up' | 'down' | 'left' | 'right') => {
     // Get current camera look point
     const cameraDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
@@ -180,37 +185,66 @@ export function CameraController() {
     const lookLat = 90 - Math.acos(lookPoint.y) * (180 / Math.PI);
     const lookLon = Math.atan2(lookPoint.z, -lookPoint.x) * (180 / Math.PI) - 180;
     
-    // Get camera right/up for direction mapping
-    const cameraRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-    const cameraUp = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
-    
-    let bestEntity: { type: 'airport'; lat: number; lon: number; id: string } | null = null;
+    let bestEntity: { type: 'airport' | 'aircraft'; lat: number; lon: number; id: string } | null = null;
     let bestScore = -Infinity;
     
-    for (const airport of airports) {
-      const latDiff = airport.lat - lookLat;
-      const lonDiff = airport.lon - lookLon;
-      const dist = Math.sqrt(latDiff * latDiff + lonDiff * lonDiff);
-      
-      // Skip if too far or too close (same position)
-      if (dist > UI.SNAP_MAX_DISTANCE || dist < UI.SNAP_MIN_DISTANCE) continue;
-      
-      // Calculate direction score based on arrow key
-      let dirScore = 0;
-      if (direction === 'up') dirScore = latDiff;
-      else if (direction === 'down') dirScore = -latDiff;
-      else if (direction === 'right') dirScore = lonDiff;
-      else if (direction === 'left') dirScore = -lonDiff;
-      
-      // Must be in the correct direction
-      if (dirScore <= 0) continue;
-      
-      // Score favors entities that are more directly in the direction and closer
-      const score = dirScore / (dist + 1);
-      
-      if (score > bestScore) {
-        bestScore = score;
-        bestEntity = { type: 'airport', lat: airport.lat, lon: airport.lon, id: airport.icao };
+    // Check airports if mode allows
+    if (activeMode === 'all' || activeMode === 'airport') {
+      for (const airport of airports) {
+        const latDiff = airport.lat - lookLat;
+        const lonDiff = airport.lon - lookLon;
+        const dist = Math.sqrt(latDiff * latDiff + lonDiff * lonDiff);
+        
+        // Skip if too far or too close (same position)
+        if (dist > UI.SNAP_MAX_DISTANCE || dist < UI.SNAP_MIN_DISTANCE) continue;
+        
+        // Calculate direction score based on arrow key
+        let dirScore = 0;
+        if (direction === 'up') dirScore = latDiff;
+        else if (direction === 'down') dirScore = -latDiff;
+        else if (direction === 'right') dirScore = lonDiff;
+        else if (direction === 'left') dirScore = -lonDiff;
+        
+        // Must be in the correct direction
+        if (dirScore <= 0) continue;
+        
+        // Score favors entities that are more directly in the direction and closer
+        const score = dirScore / (dist + 1);
+        
+        if (score > bestScore) {
+          bestScore = score;
+          bestEntity = { type: 'airport', lat: airport.lat, lon: airport.lon, id: airport.icao };
+        }
+      }
+    }
+    
+    // Check aircraft if mode allows
+    if (activeMode === 'all' || activeMode === 'aircraft') {
+      for (const ac of aircraft) {
+        const latDiff = ac.position.latitude - lookLat;
+        const lonDiff = ac.position.longitude - lookLon;
+        const dist = Math.sqrt(latDiff * latDiff + lonDiff * lonDiff);
+        
+        // Skip if too far or too close
+        if (dist > UI.SNAP_MAX_DISTANCE || dist < UI.SNAP_MIN_DISTANCE) continue;
+        
+        // Calculate direction score based on arrow key
+        let dirScore = 0;
+        if (direction === 'up') dirScore = latDiff;
+        else if (direction === 'down') dirScore = -latDiff;
+        else if (direction === 'right') dirScore = lonDiff;
+        else if (direction === 'left') dirScore = -lonDiff;
+        
+        // Must be in the correct direction
+        if (dirScore <= 0) continue;
+        
+        // Score favors entities that are more directly in the direction and closer
+        const score = dirScore / (dist + 1);
+        
+        if (score > bestScore) {
+          bestScore = score;
+          bestEntity = { type: 'aircraft', lat: ac.position.latitude, lon: ac.position.longitude, id: ac.id };
+        }
       }
     }
     
@@ -232,8 +266,27 @@ export function CameraController() {
         return;
       }
       
+      // Ctrl + Shift + Arrow: snap to nearby entity in that direction (respects active mode)
+      if (e.ctrlKey && e.shiftKey && !e.repeat) {
+        let direction: 'up' | 'down' | 'left' | 'right' | null = null;
+        if (e.key === 'ArrowUp') direction = 'up';
+        else if (e.key === 'ArrowDown') direction = 'down';
+        else if (e.key === 'ArrowLeft') direction = 'left';
+        else if (e.key === 'ArrowRight') direction = 'right';
+        
+        if (direction) {
+          e.preventDefault();
+          const entity = findEntityInDirection(direction);
+          if (entity) {
+            setFocusLocation({ lat: entity.lat, lon: entity.lon });
+            hoverEntity({ type: entity.type, id: entity.id });
+          }
+          return;
+        }
+      }
+      
       // Shift + Up/Down: zoom in/out
-      if (e.shiftKey) {
+      if (e.shiftKey && !e.ctrlKey) {
         if (e.key === 'ArrowUp') {
           e.preventDefault();
           isZoomInHeld.current = true;
@@ -243,23 +296,6 @@ export function CameraController() {
           e.preventDefault();
           isZoomOutHeld.current = true;
           return;
-        }
-        
-        // Shift + Left/Right: snap to nearby entity
-        if (!e.repeat) {
-          let direction: 'left' | 'right' | null = null;
-          if (e.key === 'ArrowLeft') direction = 'left';
-          else if (e.key === 'ArrowRight') direction = 'right';
-          
-          if (direction) {
-            e.preventDefault();
-            const entity = findEntityInDirection(direction);
-            if (entity) {
-              setFocusLocation({ lat: entity.lat, lon: entity.lon });
-              hoverEntity({ type: entity.type, id: entity.id });
-            }
-            return;
-          }
         }
       }
       
