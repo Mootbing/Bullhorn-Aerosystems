@@ -829,26 +829,45 @@ export function CameraController() {
       }
     }
     
-    // Q/E for camera tilt (when freecaming, not following aircraft)
-    const tiltUp = tiltHeld.current.up;
-    const tiltDown = tiltHeld.current.down;
+    // Q/E for camera yaw - adjust viewing angle relative to earth
+    // Q = flatter view (look along earth's surface, towards horizon)
+    // E = steeper view (look more towards earth's center, top-down)
+    const tiltUp = tiltHeld.current.up;   // Q - flatten view
+    const tiltDown = tiltHeld.current.down; // E - steepen view
     
-    if ((tiltUp || tiltDown) && !selectedEntity) {
-      const tiltSpeed = 0.8 * delta; // radians per second
+    if ((tiltUp || tiltDown) && !selectedEntity && controlsRef.current) {
+      const yawSpeed = 0.4 * delta; // How fast to adjust the view angle
       
-      // Get current polar angle (angle from up vector)
-      const spherical = new THREE.Spherical().setFromVector3(camera.position);
+      // Get the point on the globe directly below the camera (nadir)
+      const cameraPosNorm = camera.position.clone().normalize();
+      
+      // Current target position
+      const currentTarget = controlsRef.current.target.clone();
+      
+      // Calculate how far the target is from center (0 = center, 1 = on globe surface)
+      const targetDistance = currentTarget.length();
       
       if (tiltUp) {
-        // Tilt towards earth (increase polar angle, look more down)
-        spherical.phi = Math.min(Math.PI * 0.85, spherical.phi + tiltSpeed);
+        // Q: Move target towards the globe surface in camera's view direction
+        // This creates a flatter, more horizon-like view
+        const maxTargetDist = 0.85; // Max distance from center (closer to surface = flatter view)
+        const newDist = Math.min(maxTargetDist, targetDistance + yawSpeed);
+        
+        // Target should be on the globe surface in front of camera
+        const targetOnSurface = cameraPosNorm.clone().multiplyScalar(newDist);
+        controlsRef.current.target.lerp(targetOnSurface, 0.15);
       } else if (tiltDown) {
-        // Tilt towards horizon (decrease polar angle, look more out)
-        spherical.phi = Math.max(0.15, spherical.phi - tiltSpeed);
+        // E: Move target back towards center (0,0,0)
+        // This creates a more top-down view
+        const newDist = Math.max(0, targetDistance - yawSpeed);
+        
+        if (newDist < 0.01) {
+          controlsRef.current.target.set(0, 0, 0);
+        } else {
+          const targetOnSurface = cameraPosNorm.clone().multiplyScalar(newDist);
+          controlsRef.current.target.lerp(targetOnSurface, 0.15);
+        }
       }
-      
-      camera.position.setFromSpherical(spherical);
-      camera.lookAt(0, 0, 0);
     }
     
     // Arrow keys for freecam movement (default behavior) - just moves camera, no entity interaction
