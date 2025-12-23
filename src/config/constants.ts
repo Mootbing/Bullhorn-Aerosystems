@@ -90,8 +90,6 @@ export const AIRCRAFT = {
   ZOOM_SCALE_MAX: 1.2,
   
   // Smoothing
-  ROTATION_SMOOTH_FACTOR: 0.3,
-  ROTATION_SMOOTH_MAX: 0.03,
   VISIBILITY_SMOOTH_FACTOR: 4,
   VISIBILITY_SMOOTH_MAX: 0.25,
   OPACITY_SMOOTH_FACTOR: 3,
@@ -111,11 +109,14 @@ export const AIRPORTS = {
   SMALL_AIRPORT_FADE_DISTANCE: 1.25,
   SMALL_AIRPORT_FADE_SPEED: 3,
   SMALL_AIRPORT_MAX_OPACITY: 0.5,
+  LARGE_AIRPORT_MAX_OPACITY: 0.9,
   
-  // Animation
-  FADE_IN_STAGGER_DURATION: 1.2,
-  RIPPLE_DURATION: 0.5,
-  RIPPLE_OVERSHOOT: 1.6,
+  // Animation - diagonal sweep from top-left to bottom-right
+  FADE_IN_STAGGER_DURATION: 2.5,    // Total duration for nth-child style stagger across all airports
+  RIPPLE_DURATION: 0.6,             // Individual airport animation duration
+  RIPPLE_OVERSHOOT: 2.2,            // Bigger overshoot: small → BIG → normal
+  RIPPLE_MIN_SCALE: 0.1,            // Start barely visible
+  RIPPLE_MIN_OPACITY: 0.2,          // Start low opacity
   OPACITY_SMOOTH_FACTOR: 4,
 } as const;
 
@@ -124,8 +125,10 @@ export const AIRPORTS = {
 // =============================================================================
 
 export const BORDERS = {
-  DRAW_DURATION: 1.5,
-  MAX_OPACITY: 0.6,
+  DRAW_DURATION: 3.5,   // Seconds - synced to finish when loading completes (0% → 100%)
+  DRAW_OPACITY: 0.1,    // Opacity while drawing (10%)
+  FINAL_OPACITY: 0.5,   // Opacity after drawing complete (50%)
+  FADE_IN_DURATION: 0.8, // Seconds to fade from DRAW_OPACITY to FINAL_OPACITY
 } as const;
 
 // =============================================================================
@@ -203,12 +206,9 @@ export const INTRO = {
     { text: 'SYSTEM_READY', duration: 300 },
   ],
   
-  // Intro phase timing (ms)
-  BORDERS_DELAY: 200,
-  BORDERS_DURATION: 1500,
-  AIRPORTS_DELAY: 300,
-  AIRPORTS_DURATION: 1200,
-  AIRCRAFT_DELAY: 800,
+  // Post-loading timing (ms)
+  // Note: Airports animation is triggered by CameraController when camera lerp is 90% complete
+  AIRCRAFT_DELAY: 400,          // Delay after locationReady before aircraft animate
   AIRCRAFT_DURATION: 1200,
   
   // Loading screen fade
@@ -219,6 +219,9 @@ export const INTRO = {
   PROGRESS_INTERVAL: 50,
   PROGRESS_SMOOTH_FACTOR: 0.15,
   PROGRESS_JITTER: 3,
+  
+  // Camera lerp when location determined
+  CAMERA_LERP_DURATION: 1.5,    // Seconds to animate camera to user location
 } as const;
 
 // =============================================================================

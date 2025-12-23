@@ -166,6 +166,10 @@ interface Store {
   // Intro animation phases: 'loading' -> 'borders' -> 'airports' -> 'aircraft' -> 'complete'
   introPhase: 'loading' | 'borders' | 'airports' | 'aircraft' | 'complete';
   setIntroPhase: (phase: 'loading' | 'borders' | 'airports' | 'aircraft' | 'complete') => void;
+  
+  // Loading progress (0-100) for syncing animations
+  loadingProgress: number;
+  setLoadingProgress: (progress: number) => void;
 }
 
 export type { Aircraft, Position, TrackWaypoint, FlightTrack, ViewportBounds, Airport, ViewMode };
@@ -481,6 +485,10 @@ export const useRadarStore = create<Store>((set, get) => ({
   // Intro animation
   introPhase: 'loading',
   setIntroPhase: (phase) => set({ introPhase: phase }),
+  
+  // Loading progress
+  loadingProgress: 0,
+  setLoadingProgress: (progress) => set({ loadingProgress: progress }),
   
   fetchAirports: async () => {
     const { airports, airportsLoading } = get();

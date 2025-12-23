@@ -18,40 +18,42 @@ const Scene = dynamic(() => import('@/components/Scene').then((mod) => mod.Scene
 function LoadingOverlay() {
   const locationReady = useRadarStore((s) => s.locationReady);
   const setIntroPhase = useRadarStore((s) => s.setIntroPhase);
+  const setLoadingProgress = useRadarStore((s) => s.setLoadingProgress);
+  const introPhase = useRadarStore((s) => s.introPhase);
   const [stageIndex, setStageIndex] = useState(0);
   const [progress, setProgress] = useState(0);
   
-  // Trigger intro animation phases when loading completes
+  // Start borders animation immediately on mount (synced with loading progress 0-100%)
   useEffect(() => {
-    if (!locationReady) return;
+    setIntroPhase('borders');
+  }, [setIntroPhase]);
+  
+  // Sync loading progress to global store for CountryBorders
+  useEffect(() => {
+    setLoadingProgress(progress);
+  }, [progress, setLoadingProgress]);
+  
+  // Airports animation is triggered by CameraController when camera lerp is 90% complete
+  
+  // Trigger aircraft animation after airports have started
+  useEffect(() => {
+    if (introPhase !== 'airports') return;
     
-    // Start borders animation
-    const bordersTimer = setTimeout(() => {
-      setIntroPhase('borders');
-    }, INTRO.BORDERS_DELAY);
-    
-    // Start airports animation
-    const airportsTimer = setTimeout(() => {
-      setIntroPhase('airports');
-    }, INTRO.BORDERS_DELAY + INTRO.AIRPORTS_DELAY);
-    
-    // Start aircraft animation
+    // Start aircraft animation after a delay
     const aircraftTimer = setTimeout(() => {
       setIntroPhase('aircraft');
-    }, INTRO.BORDERS_DELAY + INTRO.AIRPORTS_DELAY + INTRO.AIRCRAFT_DELAY);
+    }, INTRO.AIRCRAFT_DELAY);
     
     // Complete animation
     const completeTimer = setTimeout(() => {
       setIntroPhase('complete');
-    }, INTRO.BORDERS_DELAY + INTRO.AIRPORTS_DELAY + INTRO.AIRCRAFT_DELAY + INTRO.AIRCRAFT_DURATION);
+    }, INTRO.AIRCRAFT_DELAY + INTRO.AIRCRAFT_DURATION);
     
     return () => {
-      clearTimeout(bordersTimer);
-      clearTimeout(airportsTimer);
       clearTimeout(aircraftTimer);
       clearTimeout(completeTimer);
     };
-  }, [locationReady, setIntroPhase]);
+  }, [introPhase, setIntroPhase]);
   
   // Cycle through loading stages
   useEffect(() => {
@@ -91,7 +93,7 @@ function LoadingOverlay() {
   
   return (
     <div 
-      className={`fixed inset-0 z-50 bg-black flex items-center justify-center font-mono transition-opacity pointer-events-none ${
+      className={`fixed inset-0 z-50 flex items-center justify-center font-mono transition-opacity pointer-events-none ${
         locationReady ? 'opacity-0' : 'opacity-100'
       }`}
       style={{ 

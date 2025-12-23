@@ -100,7 +100,18 @@ export function AircraftLayerInstanced() {
       // Get or create state
       let state = aircraftStates.current.get(ac.id);
       if (!state) {
-        // New aircraft - initialize state
+        // New aircraft - initialize state with correct heading immediately
+        const initialQuat = new THREE.Quaternion();
+        // Compute the correct orientation right away so there's no north-facing lerp
+        const tempAllocs = allocs.current;
+        getOrientationAtLatLonInto(
+          ac.position.latitude,
+          ac.position.longitude,
+          ac.position.heading,
+          initialQuat,
+          tempAllocs
+        );
+        
         state = {
           fadeInStartTime: -1,
           currentOpacity: 0,
@@ -111,7 +122,7 @@ export function AircraftLayerInstanced() {
           lastServerHeading: ac.position.heading,
           lastServerSpeed: ac.position.speed,
           lastServerTime: now,
-          currentQuat: new THREE.Quaternion(),
+          currentQuat: initialQuat,
         };
         aircraftStates.current.set(ac.id, state);
       } else {
@@ -255,18 +266,14 @@ export function AircraftLayerInstanced() {
       // Get position
       latLonToVector3Into(finalLat, finalLon, acState.lastServerAlt, 1, dummy.position);
       
-      // Get orientation with smooth interpolation
+      // Get orientation - instant, no lerp (heading is correct at spawn)
       getOrientationAtLatLonInto(
         finalLat, 
         finalLon, 
         acState.lastServerHeading, 
-        allocs.current.quat,
+        acState.currentQuat,
         allocs.current
       );
-      
-      // Smooth rotation interpolation
-      const rotSmoothFactor = Math.min(delta * AIRCRAFT.ROTATION_SMOOTH_FACTOR, AIRCRAFT.ROTATION_SMOOTH_MAX);
-      acState.currentQuat.slerp(allocs.current.quat, rotSmoothFactor);
       dummy.quaternion.copy(acState.currentQuat);
       
       // Calculate visibility

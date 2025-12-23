@@ -5,7 +5,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { useRadarStore } from '@/store/gameStore';
-import { CAMERA, LOCATIONS, INPUT, AIRPORTS } from '@/config/constants';
+import { CAMERA, LOCATIONS, INPUT, AIRPORTS, INTRO } from '@/config/constants';
 import { useCanvasInput, useInputState } from '@/hooks/useInputManager';
 import { InputAction } from '@/lib/inputManager';
 import { latLonToVector3 } from '@/utils/geo';
@@ -22,6 +22,7 @@ export function CameraController() {
   const aircraft = useRadarStore((state) => state.aircraft);
   const airports = useRadarStore((state) => state.airports);
   const setLocationReady = useRadarStore((state) => state.setLocationReady);
+  const setIntroPhase = useRadarStore((state) => state.setIntroPhase);
   const hoverEntity = useRadarStore((state) => state.hoverEntity);
   const setFocusLocation = useRadarStore((state) => state.setFocusLocation);
   
@@ -385,19 +386,30 @@ export function CameraController() {
     }
   }, []);
   
-  // Set initial camera position when location is determined
+  // Initial location animation state
+  const initialLocationAnimating = useRef(false);
+  const initialLocationProgress = useRef(0);
+  const initialLocationStart = useRef(new THREE.Vector3());
+  const initialLocationTarget = useRef(new THREE.Vector3());
+  const airportsTriggered = useRef(false);
+  
+  // Set initial camera position when location is determined - animate instead of teleport
   useEffect(() => {
     if (!initialLocation || !controlsRef.current) return;
     
     const targetPoint = latLonToVector3(initialLocation.lat, initialLocation.lon, 0);
     const cameraDirection = targetPoint.clone().normalize();
-    const cameraPos = cameraDirection.clone().multiplyScalar(CAMERA.CITY_ZOOM_DISTANCE);
+    const finalCameraPos = cameraDirection.clone().multiplyScalar(CAMERA.CITY_ZOOM_DISTANCE);
     
-    camera.position.copy(cameraPos);
+    // Store start and target for animation
+    initialLocationStart.current.copy(camera.position);
+    initialLocationTarget.current.copy(finalCameraPos);
+    initialLocationProgress.current = 0;
+    initialLocationAnimating.current = true;
+    
     // Set target to globe center (0,0,0) for free rotation around the globe
     controlsRef.current.target.set(0, 0, 0);
     currentTarget.current.set(0, 0, 0);
-    controlsRef.current.update();
     
     // Signal that location is ready - allow data fetching to begin
     setLocationReady(true);
@@ -628,6 +640,27 @@ export function CameraController() {
   
   useFrame((_, delta) => {
     if (!controlsRef.current) return;
+    
+    // Handle initial location lerp animation
+    if (initialLocationAnimating.current) {
+      initialLocationProgress.current += delta / INTRO.CAMERA_LERP_DURATION;
+      const t = Math.min(initialLocationProgress.current, 1);
+      // Ease out cubic for smooth deceleration
+      const eased = 1 - Math.pow(1 - t, 3);
+      
+      camera.position.lerpVectors(initialLocationStart.current, initialLocationTarget.current, eased);
+      controlsRef.current.update();
+      
+      // Trigger airports animation when lerp is 90% complete
+      if (t >= 0.9 && !airportsTriggered.current) {
+        airportsTriggered.current = true;
+        setIntroPhase('airports');
+      }
+      
+      if (t >= 1) {
+        initialLocationAnimating.current = false;
+      }
+    }
     
     if (isAnimating.current) {
       if (animationPhase.current === 'direct') {

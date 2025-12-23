@@ -14,7 +14,7 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
+    --background: #000000;
     --foreground: #ededed;
   }
 }
@@ -28,12 +28,18 @@ html, body {
   overscroll-behavior: none;
   touch-action: none;
   cursor: auto;
+  background: #000000;
 }
 
 body {
-  background: var(--background);
+  background: #000000;
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Ensure canvas has black background */
+canvas {
+  background: #000000 !important;
 }
 
 /* Search match highlight sweep animation */
@@ -90,4 +96,26 @@ body {
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: #444;
+}
+
+/* Bottom bar animation - hidden by default, animated in after loading */
+.bottom-bar-item {
+  opacity: 0;
+  transform: translateY(24px) scale(0.95);
+}
+
+.bottom-bar-item.animate-in {
+  animation: popUpFadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation-delay: calc(var(--item-index, 0) * 0.12s);
+}
+
+@keyframes popUpFadeIn {
+  0% {
+    opacity: 0;
+    transform: translateY(24px) scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }

@@ -68,7 +68,11 @@ function matchesFreeText(text: string, terms: string[]): boolean {
   return terms.some(t => lower.includes(t.toLowerCase()));
 }
 
-export function SearchBar() {
+interface SearchBarProps {
+  onFocusChange?: (focused: boolean) => void;
+}
+
+export function SearchBar({ onFocusChange }: SearchBarProps) {
   const [query, setQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -314,7 +318,11 @@ export function SearchBar() {
         value={query}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
-        onFocus={() => query && setShowResults(true)}
+        onFocus={() => {
+          if (query) setShowResults(true);
+          onFocusChange?.(true);
+        }}
+        onBlur={() => onFocusChange?.(false)}
         placeholder="[SPACE]"
         className={`w-full ${BG.GLASS_BLUR} ${BORDER.PANEL} px-3 py-2 ${TEXT.BASE} ${TEXT.PRIMARY} placeholder-[#555] ${BORDER.FOCUS} focus:outline-none`}
       />

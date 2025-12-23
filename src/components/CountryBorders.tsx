@@ -29,11 +29,11 @@ interface GeoJSONData {
 export function CountryBorders() {
   const [lineData, setLineData] = useState<{ positions: Float32Array; totalSegments: number } | null>(null);
   const introPhase = useRadarStore((s) => s.introPhase);
+  const loadingProgress = useRadarStore((s) => s.loadingProgress);
   
   const geometryRef = useRef<THREE.BufferGeometry | null>(null);
   const materialRef = useRef<THREE.LineBasicMaterial | null>(null);
-  const animationProgress = useRef(0);
-  const animationStarted = useRef(false);
+  const fadeStartTime = useRef<number | null>(null);
 
   // Load bundled GeoJSON on mount
   useEffect(() => {
@@ -112,35 +112,42 @@ export function CountryBorders() {
     };
   }, [lineData]);
   
-  // Animate draw range
-  useFrame((_, delta) => {
+  // Animate draw range synced to loading progress
+  useFrame((state) => {
     if (!geometryRef.current || !lineData) return;
     
-    // Start animation when borders phase begins
-    if (introPhase === 'borders' || introPhase === 'airports' || introPhase === 'aircraft' || introPhase === 'complete') {
-      if (!animationStarted.current) {
-        animationStarted.current = true;
-        animationProgress.current = 0;
-      }
-    }
-    
-    if (!animationStarted.current) {
+    // Only animate when borders phase is active
+    if (introPhase !== 'borders' && introPhase !== 'airports' && introPhase !== 'aircraft' && introPhase !== 'complete') {
       geometryRef.current.setDrawRange(0, 0);
       return;
     }
     
-    // Animate progress
-    if (animationProgress.current < 1) {
-      animationProgress.current = Math.min(1, animationProgress.current + delta / BORDERS.DRAW_DURATION);
-      
-      // Ease out cubic for smooth draw
-      const eased = 1 - Math.pow(1 - animationProgress.current, 3);
-      const vertexCount = Math.floor(eased * lineData.positions.length / 3);
-      geometryRef.current.setDrawRange(0, vertexCount);
-      
-      // Also fade in opacity
-      if (materialRef.current) {
-        materialRef.current.opacity = eased * BORDERS.MAX_OPACITY;
+    // Use loading progress directly (0-100 → 0-1)
+    const progress = Math.min(1, loadingProgress / 100);
+    
+    // Ease out cubic for smooth draw
+    const eased = 1 - Math.pow(1 - progress, 3);
+    const vertexCount = Math.floor(eased * lineData.positions.length / 3);
+    geometryRef.current.setDrawRange(0, vertexCount);
+    
+    // Two-phase opacity: 10% while drawing, then fade to 50% after complete
+    if (materialRef.current) {
+      if (progress < 1) {
+        // Drawing phase: keep at low opacity
+        materialRef.current.opacity = BORDERS.DRAW_OPACITY;
+        fadeStartTime.current = null;
+      } else {
+        // Drawing complete: fade from DRAW_OPACITY to FINAL_OPACITY
+        if (fadeStartTime.current === null) {
+          fadeStartTime.current = state.clock.elapsedTime;
+        }
+        
+        const fadeElapsed = state.clock.elapsedTime - fadeStartTime.current;
+        const fadeProgress = Math.min(1, fadeElapsed / BORDERS.FADE_IN_DURATION);
+        
+        // Ease out for smooth fade
+        const fadeEased = 1 - Math.pow(1 - fadeProgress, 2);
+        materialRef.current.opacity = BORDERS.DRAW_OPACITY + (BORDERS.FINAL_OPACITY - BORDERS.DRAW_OPACITY) * fadeEased;
       }
     }
   });

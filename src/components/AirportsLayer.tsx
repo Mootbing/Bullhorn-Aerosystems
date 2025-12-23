@@ -15,12 +15,51 @@ import { createRenderLoopAllocations } from '@/utils/sharedGeometry';
 // Fixed: Pre-allocated objects for render loop, no GC pressure
 // ============================================================================
 
-// Ripple ease: starts big, settles to 1.0
-function rippleEase(t: number): number {
-  if (t <= 0) return 0;
+// Swoop ease: starts small, grows BIG, settles to 1.0
+// t = 0: minScale (barely visible)
+// t = 0.4: peak overshoot (BIG)
+// t = 1: settles to 1.0
+function swoopEase(t: number): number {
+  if (t <= 0) return AIRPORTS.RIPPLE_MIN_SCALE;
   if (t >= 1) return 1;
-  const decay = Math.pow(1 - t, 2);
-  return 1 + (AIRPORTS.RIPPLE_OVERSHOOT - 1) * decay * Math.sin(t * Math.PI);
+  
+  // Use a curve that peaks around t=0.4 then settles
+  const peakT = 0.4;
+  const overshoot = AIRPORTS.RIPPLE_OVERSHOOT;
+  const minScale = AIRPORTS.RIPPLE_MIN_SCALE;
+  
+  if (t < peakT) {
+    // Rising phase: minScale → overshoot
+    const riseProgress = t / peakT;
+    const eased = 1 - Math.pow(1 - riseProgress, 2); // ease out
+    return minScale + (overshoot - minScale) * eased;
+  } else {
+    // Settling phase: overshoot → 1.0
+    const settleProgress = (t - peakT) / (1 - peakT);
+    const eased = 1 - Math.pow(1 - settleProgress, 3); // ease out cubic
+    return overshoot - (overshoot - 1) * eased;
+  }
+}
+
+// Opacity ease: starts low, peaks at 100%, settles to target
+function opacityEase(t: number, targetOpacity: number): number {
+  if (t <= 0) return AIRPORTS.RIPPLE_MIN_OPACITY;
+  if (t >= 1) return targetOpacity;
+  
+  const peakT = 0.4;
+  const minOpacity = AIRPORTS.RIPPLE_MIN_OPACITY;
+  
+  if (t < peakT) {
+    // Rising phase: minOpacity → 1.0
+    const riseProgress = t / peakT;
+    const eased = 1 - Math.pow(1 - riseProgress, 2);
+    return minOpacity + (1 - minOpacity) * eased;
+  } else {
+    // Settling phase: 1.0 → targetOpacity
+    const settleProgress = (t - peakT) / (1 - peakT);
+    const eased = 1 - Math.pow(1 - settleProgress, 3);
+    return 1 - (1 - targetOpacity) * eased;
+  }
 }
 
 // Instanced mesh for large airports
@@ -44,14 +83,32 @@ function LargeAirportsInstanced({ airports }: { airports: Airport[] }) {
     return airports.map(airport => latLonToVector3(airport.lat, airport.lon, 0, GLOBE.AIRPORT_SURFACE_OFFSET));
   }, [airports]);
   
-  // Pre-computed stagger delays
+  // Pre-computed stagger delays - sorted by distance from top-left for nth-child sprawl effect
   const staggerDelays = useMemo(() => {
-    return airports.map(airport => {
-      const normalizedLon = (airport.lon + 180) / 360;
-      const normalizedLat = (90 - airport.lat) / 180;
-      const diagonal = (normalizedLon + normalizedLat) / 2;
-      return diagonal * AIRPORTS.FADE_IN_STAGGER_DURATION;
+    // Calculate distance from "top-left" for each airport
+    // Top-left = high latitude (north), low longitude (west)
+    // We normalize and combine to get a diagonal distance
+    const distances = airports.map((airport, idx) => {
+      // Invert lat so higher lat = lower value (closer to top)
+      // Keep lon as is so lower lon = lower value (closer to left)
+      const normalizedLat = (90 - airport.lat) / 180; // 0 = north pole, 1 = south pole
+      const normalizedLon = (airport.lon + 180) / 360; // 0 = -180, 1 = 180
+      // Combined diagonal distance from top-left (0,0)
+      const distance = Math.sqrt(normalizedLat * normalizedLat + normalizedLon * normalizedLon);
+      return { idx, distance };
     });
+    
+    // Sort by distance to get order
+    distances.sort((a, b) => a.distance - b.distance);
+    
+    // Create delay array based on sorted order (nth-child style)
+    const delays = new Array(airports.length);
+    const delayPerItem = AIRPORTS.FADE_IN_STAGGER_DURATION / Math.max(1, airports.length);
+    distances.forEach((item, sortedIdx) => {
+      delays[item.idx] = sortedIdx * delayPerItem;
+    });
+    
+    return delays;
   }, [airports]);
   
   const indexToIcao = useMemo(() => airports.map(a => a.icao), [airports]);
@@ -104,22 +161,24 @@ function LargeAirportsInstanced({ airports }: { airports: Airport[] }) {
       const individualProgress = Math.min(1, individualTime / AIRPORTS.RIPPLE_DURATION);
       maxProgress = Math.max(maxProgress, individualProgress);
       
-      const rippleScale = animationStarted.current ? rippleEase(individualProgress) : 0;
+      // Swoop animation: small → BIG → normal
+      const swoopScale = animationStarted.current ? swoopEase(individualProgress) : 0;
       
       // View visibility
       const targetVisibility = calculateViewVisibility(pos, camera);
       instanceOpacities.current[i] += (targetVisibility - instanceOpacities.current[i]) * smoothFactor;
       const smoothVisibility = instanceOpacities.current[i];
       
-      dummy.scale.setScalar(rippleScale * smoothVisibility);
+      dummy.scale.setScalar(swoopScale * smoothVisibility);
       dummy.updateMatrix();
       meshRef.current!.setMatrixAt(i, dummy.matrix);
     }
     
     meshRef.current.instanceMatrix.needsUpdate = true;
     
+    // Opacity animation: low → 100% → target
     const material = meshRef.current.material as THREE.MeshBasicMaterial;
-    material.opacity = Math.min(0.9, maxProgress);
+    material.opacity = opacityEase(maxProgress, AIRPORTS.LARGE_AIRPORT_MAX_OPACITY);
   });
   
   // Update colors based on hover
@@ -196,13 +255,24 @@ function SmallAirportsInstanced({ airports }: { airports: Airport[] }) {
     return airports.map(airport => latLonToVector3(airport.lat, airport.lon, 0, GLOBE.AIRPORT_SURFACE_OFFSET));
   }, [airports]);
   
+  // Pre-computed stagger delays - sorted by distance from top-left for nth-child sprawl effect
   const staggerDelays = useMemo(() => {
-    return airports.map(airport => {
-      const normalizedLon = (airport.lon + 180) / 360;
+    const distances = airports.map((airport, idx) => {
       const normalizedLat = (90 - airport.lat) / 180;
-      const diagonal = (normalizedLon + normalizedLat) / 2;
-      return diagonal * AIRPORTS.FADE_IN_STAGGER_DURATION;
+      const normalizedLon = (airport.lon + 180) / 360;
+      const distance = Math.sqrt(normalizedLat * normalizedLat + normalizedLon * normalizedLon);
+      return { idx, distance };
     });
+    
+    distances.sort((a, b) => a.distance - b.distance);
+    
+    const delays = new Array(airports.length);
+    const delayPerItem = AIRPORTS.FADE_IN_STAGGER_DURATION / Math.max(1, airports.length);
+    distances.forEach((item, sortedIdx) => {
+      delays[item.idx] = sortedIdx * delayPerItem;
+    });
+    
+    return delays;
   }, [airports]);
   
   const indexToIcao = useMemo(() => airports.map(a => a.icao), [airports]);
@@ -250,9 +320,6 @@ function SmallAirportsInstanced({ airports }: { airports: Airport[] }) {
     const cameraDistance = camera.position.length();
     const baseOpacity = Math.max(0, Math.min(1, (AIRPORTS.SMALL_AIRPORT_FADE_DISTANCE - cameraDistance) * AIRPORTS.SMALL_AIRPORT_FADE_SPEED));
     
-    const hoveredIdx = hoveredAirport ? indexToIcao.indexOf(hoveredAirport) : -1;
-    const hasHoveredSmallAirport = hoveredIdx >= 0;
-    
     vec3_a.set(0, 0, 1);
     let maxProgress = 0;
     
@@ -274,28 +341,25 @@ function SmallAirportsInstanced({ airports }: { airports: Airport[] }) {
       const individualProgress = Math.min(1, individualTime / AIRPORTS.RIPPLE_DURATION);
       maxProgress = Math.max(maxProgress, individualProgress);
       
-      const rippleScale = animationStarted.current ? rippleEase(individualProgress) : 0;
+      // Swoop animation: small → BIG → normal
+      const swoopScale = animationStarted.current ? swoopEase(individualProgress) : 0;
       const targetVisibility = calculateViewVisibility(pos, camera);
       
       instanceOpacities.current[i] += (targetVisibility - instanceOpacities.current[i]) * smoothFactor;
       const smoothVisibility = instanceOpacities.current[i];
       
-      dummy.scale.setScalar(rippleScale * smoothVisibility);
+      dummy.scale.setScalar(swoopScale * smoothVisibility);
       dummy.updateMatrix();
       meshRef.current!.setMatrixAt(i, dummy.matrix);
     }
     
     meshRef.current.instanceMatrix.needsUpdate = true;
     
+    // Opacity animation: low → 100% → target (factored by baseOpacity for distance fade)
     const material = meshRef.current.material as THREE.MeshBasicMaterial;
-    
-    if (hasHoveredSmallAirport) {
-      material.opacity = Math.max(0.8, baseOpacity * AIRPORTS.SMALL_AIRPORT_MAX_OPACITY) * maxProgress;
-      meshRef.current.visible = maxProgress > 0.01;
-    } else {
-      material.opacity = baseOpacity * AIRPORTS.SMALL_AIRPORT_MAX_OPACITY * maxProgress;
-      meshRef.current.visible = baseOpacity > 0.01 && maxProgress > 0.01;
-    }
+    const targetOpacity = baseOpacity * AIRPORTS.SMALL_AIRPORT_MAX_OPACITY;
+    material.opacity = opacityEase(maxProgress, targetOpacity);
+    meshRef.current.visible = maxProgress > 0.01;
   });
   
   const handlePointerOver = (e: ThreeEvent<PointerEvent>) => {

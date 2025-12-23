@@ -4,7 +4,7 @@ import { useRadarStore } from '@/store/gameStore';
 import { useEffect, useCallback, useState } from 'react';
 import { EntityInfoPanel } from './entities/EntityInfoPanel';
 import { SearchBar } from './SearchBar';
-import { ModeBar } from './ModeBar';
+import { StackedModeBars } from './StackedModeBars';
 import { useGlobalInput } from '@/hooks/useInputManager';
 import { InputAction } from '@/lib/inputManager';
 import { UI, COLORS } from '@/config/constants';
@@ -18,6 +18,7 @@ export function Dashboard() {
   
   // Delay animation start until after loading screen fades
   const [animateIn, setAnimateIn] = useState(false);
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
   
   useEffect(() => {
     if (locationReady && !animateIn) {
@@ -57,21 +58,16 @@ export function Dashboard() {
       
       {/* Bottom Bar */}
       <div className="absolute bottom-0 left-0 right-0 p-3 pointer-events-auto">
-        <div className="flex gap-3">
-          {/* Left: Mode Bar */}
-          <div 
-            className={`shrink-0 ${animateIn ? 'bottom-bar-item animate-in' : 'bottom-bar-item'}`} 
-            style={{ '--item-index': 0 } as React.CSSProperties}
-          >
-            <ModeBar />
-          </div>
+        <div className="flex gap-3 items-end">
+          {/* Left: Stacked Mode Bars (Filter + AI Tools) */}
+          <StackedModeBars isSearchFocused={isSearchFocused} animateIn={animateIn} />
           
           {/* Center: Search Bar - spans all available space */}
           <div 
             className={`flex-1 min-w-0 ${animateIn ? 'bottom-bar-item animate-in' : 'bottom-bar-item'}`}
             style={{ '--item-index': 1 } as React.CSSProperties}
           >
-            <SearchBar />
+            <SearchBar onFocusChange={setIsSearchFocused} />
           </div>
       
           {/* Right: Hints & Branding */}
@@ -97,18 +93,18 @@ export function Dashboard() {
           const baseOpacity = Math.max(UI.TOAST.MIN_OPACITY, 1 - distanceFromBottom * UI.TOAST.OPACITY_DECAY);
           
           return (
-            <div 
-              key={toast.id}
-              className={`transition-all duration-300 ${
-                toast.exiting 
+          <div 
+            key={toast.id}
+            className={`transition-all duration-300 ${
+              toast.exiting 
                   ? 'opacity-0 -translate-y-2 scale-95' 
                   : 'translate-y-0 scale-100'
-              }`}
-              style={{
+            }`}
+            style={{
                 opacity: toast.exiting ? 0 : baseOpacity,
                 transitionDelay: toast.exiting ? '0ms' : `${index * UI.TOAST.STAGGER_DELAY}ms`,
-              }}
-            >
+            }}
+          >
               <div 
                 className={`backdrop-blur-sm border px-4 py-2 ${TEXT.LG} tracking-widest whitespace-nowrap`}
                 style={{
@@ -117,36 +113,13 @@ export function Dashboard() {
                   color: `rgba(255, 255, 255, ${baseOpacity})`,
                 }}
               >
-                {toast.message}
-              </div>
+              {toast.message}
             </div>
+          </div>
           );
         })}
       </div>
       
-      {/* Bottom bar animation styles */}
-      <style jsx>{`
-        .bottom-bar-item {
-          opacity: 0;
-          transform: translateY(24px) scale(0.95);
-        }
-        
-        .bottom-bar-item.animate-in {
-          animation: popUpFadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-          animation-delay: calc(var(--item-index) * ${UI.BOTTOM_BAR_ITEM_STAGGER}s);
-        }
-        
-        @keyframes popUpFadeIn {
-          0% {
-            opacity: 0;
-            transform: translateY(24px) scale(0.95);
-          }
-          100% {
-            opacity: 1;
-            transform: translateY(0) scale(1);
-          }
-        }
-      `}</style>
     </div>
   );
 }
