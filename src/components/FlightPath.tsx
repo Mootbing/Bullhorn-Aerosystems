@@ -4,9 +4,10 @@ import { useMemo, useEffect, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useRadarStore, TrackWaypoint, Aircraft } from '@/store/gameStore';
+import { GLOBE, FLIGHT_PATH } from '@/config/constants';
 
 function latLonToVector3(lat: number, lon: number, alt: number = 0): THREE.Vector3 {
-  const r = 1 + alt * 0.0000005;
+  const r = 1 + alt * GLOBE.ALTITUDE_SCALE;
   const phi = (90 - lat) * (Math.PI / 180);
   const theta = (lon + 180) * (Math.PI / 180);
   return new THREE.Vector3(
@@ -19,15 +20,15 @@ function latLonToVector3(lat: number, lon: number, alt: number = 0): THREE.Vecto
 function interpolateOnGlobe(p1: THREE.Vector3, p2: THREE.Vector3, t: number, alt: number): THREE.Vector3 {
   const result = new THREE.Vector3();
   result.copy(p1).lerp(p2, t);
-  const r = 1 + alt * 0.0000005;
+  const r = 1 + alt * GLOBE.ALTITUDE_SCALE;
   result.normalize().multiplyScalar(r);
   return result;
 }
 
-// Animation timing constants (matches EntityInfoPanel at 300ms)
-const TOTAL_ANIMATION_TIME = 0.3; // Total animation duration in seconds
-const TRAVELED_RATIO = 0.5; // First half for traveled path
-const PREDICTED_RATIO = 0.5; // Second half for predicted path
+// Animation timing constants
+const TOTAL_ANIMATION_TIME = FLIGHT_PATH.ANIMATION_DURATION;
+const TRAVELED_RATIO = FLIGHT_PATH.TRAVELED_RATIO;
+const PREDICTED_RATIO = FLIGHT_PATH.PREDICTED_RATIO;
 
 // Combined flight path with synchronized drawing animation
 // Draws: origin → plane (solid) → destination (dotted) in one continuous stroke
@@ -88,7 +89,7 @@ function CombinedFlightPath({
   const predicted = useMemo(() => {
     const { latitude, longitude, altitude, heading, speed } = aircraft.position;
     
-    const predictMinutes = 10;
+    const predictMinutes = FLIGHT_PATH.PREDICT_MINUTES;
     const pts: THREE.Vector3[] = [];
     
     const startPos = latLonToVector3(latitude, longitude, altitude);
@@ -228,7 +229,7 @@ function PredictedPathOnly({ aircraft }: { aircraft: Aircraft }) {
   const { geometry, material, totalPoints } = useMemo(() => {
     const { latitude, longitude, altitude, heading, speed } = aircraft.position;
     
-    const predictMinutes = 10;
+    const predictMinutes = FLIGHT_PATH.PREDICT_MINUTES;
     const pts: THREE.Vector3[] = [];
     
     const startPos = latLonToVector3(latitude, longitude, altitude);

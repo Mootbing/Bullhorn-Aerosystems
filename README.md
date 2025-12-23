@@ -1,8 +1,8 @@
-# BULLANTIR AEROSYSTEMS
+# BULLHORN AEROSYSTEMS
 
 Open source aerosystem defence engine with commercial airlines as interface example. Built with Next.js, React Three Fiber, and the OpenSky Network API.
 
-![Bullantir Radar](https://img.shields.io/badge/version-0.1.0-blue)
+![Bullhorn Radar](https://img.shields.io/badge/version-0.1.0-blue)
 ![Next.js](https://img.shields.io/badge/Next.js-15-black)
 ![Three.js](https://img.shields.io/badge/Three.js-r170-green)
 

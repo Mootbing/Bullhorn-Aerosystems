@@ -4,6 +4,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { useRadarStore, Aircraft, Airport } from '@/store/gameStore';
 import { EntityType } from '@/types/entities';
 import { getEntityConfig } from '@/lib/entityRegistry';
+import { UI } from '@/config/constants';
 
 interface ParsedSearch {
   entityType: 'all' | EntityType;
@@ -145,7 +146,7 @@ export function SearchBar() {
         });
       }
       
-      setResults(searchResults.slice(0, 30));
+      setResults(searchResults.slice(0, UI.SEARCH_MAX_RESULTS));
       setShowResults(true);
       setSelectedIndex(0);
     } catch {
@@ -171,7 +172,7 @@ export function SearchBar() {
         });
       }
       
-      setResults(searchResults.slice(0, 30));
+      setResults(searchResults.slice(0, UI.SEARCH_MAX_RESULTS));
       setShowResults(true);
       setSelectedIndex(0);
     } finally {
@@ -182,7 +183,7 @@ export function SearchBar() {
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setQuery(e.target.value);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => performSearch(e.target.value), 300);
+    debounceRef.current = setTimeout(() => performSearch(e.target.value), UI.SEARCH_DEBOUNCE);
   }, [performSearch]);
   
   // Re-search when mode changes
@@ -308,7 +309,7 @@ export function SearchBar() {
         onKeyDown={handleKeyDown}
         onFocus={() => query && setShowResults(true)}
         placeholder="search [/]"
-        className="w-full bg-transparent border border-[#333] px-3 py-1.5 text-[10px] text-white placeholder-[#444] focus:border-[#00ff88]/50 focus:outline-none"
+        className="w-full bg-black/30 backdrop-blur-md border border-[#333] px-3 py-1.5 text-[10px] text-white placeholder-[#555] focus:border-[#00ff88]/50 focus:outline-none"
       />
       
       {isSearching && (

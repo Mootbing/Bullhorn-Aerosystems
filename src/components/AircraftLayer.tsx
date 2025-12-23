@@ -6,10 +6,11 @@ import * as THREE from 'three';
 import { useRadarStore, Aircraft } from '@/store/gameStore';
 import { AircraftDot } from './AircraftDot';
 import { FlightPath } from './FlightPath';
+import { GLOBE, AIRCRAFT } from '@/config/constants';
 
 // Convert lat/lon to 3D position for frustum check
 function latLonToVector3(lat: number, lon: number, alt: number = 0): THREE.Vector3 {
-  const r = 1 + alt * 0.0000005;
+  const r = 1 + alt * GLOBE.ALTITUDE_SCALE;
   const phi = (90 - lat) * (Math.PI / 180);
   const theta = (lon + 180) * (Math.PI / 180);
   return new THREE.Vector3(
@@ -20,9 +21,9 @@ function latLonToVector3(lat: number, lon: number, alt: number = 0): THREE.Vecto
 }
 
 // Grace period before deloading out-of-view aircraft (ms)
-const DELOAD_GRACE_PERIOD = 5000;
+const DELOAD_GRACE_PERIOD = AIRCRAFT.DELOAD_GRACE_PERIOD;
 // How often to check for aircraft to deload (ms)
-const DELOAD_CHECK_INTERVAL = 2000;
+const DELOAD_CHECK_INTERVAL = AIRCRAFT.DELOAD_CHECK_INTERVAL;
 
 export function AircraftLayer() {
   const aircraft = useRadarStore((state) => state.aircraft);

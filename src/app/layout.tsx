@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Bullantir Aerosystems",
+  title: "Bullhorn Aerosystems",
   description: "Open source aerosystem defence engine with commercial airlines as interface example",
 };
 

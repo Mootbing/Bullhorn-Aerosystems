@@ -1,9 +1,10 @@
 'use client';
 
-import { useRef, useState, useEffect, useMemo } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { useRadarStore, Aircraft, Airport } from '@/store/gameStore';
 import { EntityRef, getEntityTypeName } from '@/types/entities';
 import { ScrollingText } from '../ScrollingText';
+import { GLOBE, UI } from '@/config/constants';
 
 // Predict position based on speed (knots) and heading after elapsed time (seconds)
 function predictPosition(
@@ -15,7 +16,7 @@ function predictPosition(
 ): { lat: number; lon: number } {
   const kmPerHour = speedKnots * 1.852;
   const kmPerSecond = kmPerHour / 3600;
-  const earthCircumferenceKm = 2 * Math.PI * 6371;
+  const earthCircumferenceKm = GLOBE.EARTH_CIRCUMFERENCE_KM;
   const distanceDegreesEquator = (kmPerSecond * elapsedSeconds / earthCircumferenceKm) * 360;
   const headingRad = heading * (Math.PI / 180);
   const newLat = lat + distanceDegreesEquator * Math.cos(headingRad);
@@ -45,11 +46,11 @@ export function DataRow({
   glowColor?: 'blue' | 'yellow' | 'green';
 }) {
   return (
-    <div className="flex justify-between items-center py-0.5">
-      <span className="text-[#555]">{label}</span>
+    <div className="flex justify-between items-start gap-2 py-0.5">
+      <span className="text-[#555] shrink-0">{label}</span>
       <ScrollingText 
         text={value} 
-        className="text-white"
+        className="text-white text-right break-words"
         glowColor={glowColor}
       />
     </div>
@@ -180,16 +181,16 @@ function AircraftInfoContent({
   return (
     <div className="space-y-3">
       {/* Header - Callsign & ICAO */}
-      <div className="flex items-baseline justify-between border-b border-[#1a1a1a] pb-2">
-        <div>
-          <div className="text-white font-medium text-sm">
+      <div className="flex items-start justify-between gap-3 border-b border-[#1a1a1a] pb-2">
+        <div className="flex-1 min-w-0">
+          <div className="text-white font-medium text-sm truncate">
             <ScrollingText text={aircraft.callsign} glowColor={glowColor} />
           </div>
-          <div className="text-[#666] text-[9px]">
-            <ScrollingText text={aircraft.originCountry || 'Unknown Origin'} glowColor={glowColor} />
+          <div className="text-[#666] text-[9px] truncate">
+            {aircraft.originCountry || 'Unknown Origin'}
           </div>
         </div>
-        <div className="text-right">
+        <div className="text-right shrink-0">
           <div className="text-[#00ff88] font-mono">
             <ScrollingText text={aircraft.id.toUpperCase()} glowColor="green" />
           </div>
@@ -299,16 +300,16 @@ function AirportInfoContent({
   return (
     <div className="space-y-2">
       {/* Header - ICAO & IATA */}
-      <div className="flex items-baseline justify-between border-b border-[#1a1a1a] pb-2">
-        <div>
+      <div className="flex items-start justify-between gap-3 border-b border-[#1a1a1a] pb-2">
+        <div className="flex-1 min-w-0">
           <div className="text-white font-medium text-sm">
             <ScrollingText text={airport.iata || airport.icao} glowColor={glowColor} />
           </div>
-          <div className="text-[#666] text-[9px]">
-            <ScrollingText text={airport.name} glowColor={glowColor} />
+          <div className="text-[#666] text-[9px] break-words">
+            {airport.name}
           </div>
         </div>
-        <div className="text-right">
+        <div className="text-right shrink-0">
           <div className="text-[#00ff88] font-mono">
             <ScrollingText text={airport.icao} glowColor="green" />
           </div>
@@ -317,7 +318,7 @@ function AirportInfoContent({
       </div>
       
       {/* Location */}
-      <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+      <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
         <DataRow label="CITY" value={airport.city || 'N/A'} glowColor={glowColor} />
         <DataRow label="COUNTRY" value={airport.country || 'N/A'} glowColor={glowColor} />
         <DataRow label="ELEV" value={airport.elevation ? `${Math.round(airport.elevation)} ft` : 'N/A'} glowColor={glowColor} />
@@ -408,10 +409,11 @@ export function EntityInfoPanel({ onClose: _onClose }: EntityInfoPanelProps) {
   
   return (
     <div 
-      className={'bg-black/90 min-w-[280px] transition-all duration-300 ease-out border-[#1a1a1a] ' + 
+      className={'bg-black/90 transition-all duration-300 ease-out border-[#1a1a1a] ' + 
         (showContent ? 'border ' : 'border-0 ') +
         (isHovering && !isSelected ? 'border-dashed' : 'border-solid')}
       style={{ 
+        width: `${UI.INFO_PANEL_WIDTH}px`,
         maxHeight: showContent ? '600px' : '0px',
         opacity: isVisible ? 1 : 0,
         transform: isVisible ? 'translateY(0)' : 'translateY(20px)',

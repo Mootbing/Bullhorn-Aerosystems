@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { EntityType } from '@/types/entities';
 import { useRadarStore } from '@/store/gameStore';
+import { UI } from '@/config/constants';
 
 interface ModeBarProps {
   onModeChange?: (mode: EntityType | 'all') => void;
@@ -30,7 +31,7 @@ const AllIcon = ({ active, highlighted }: { active: boolean; highlighted?: boole
   <div className={`w-2.5 h-2.5 rounded-full ${highlighted ? 'bg-yellow-400' : active ? 'bg-[#00ff88]' : 'bg-[#555]'}`} />
 );
 
-const HOLD_THRESHOLD = 300; // ms to trigger menu
+const HOLD_THRESHOLD = UI.TAB_HOLD_THRESHOLD;
 
 export function ModeBar({ onModeChange }: ModeBarProps) {
   const activeMode = useRadarStore((s) => s.gameState.activeMode);
@@ -44,6 +45,8 @@ export function ModeBar({ onModeChange }: ModeBarProps) {
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const tabPressTime = useRef<number | null>(null);
   const holdTimeout = useRef<NodeJS.Timeout | null>(null);
+  const mousePressTime = useRef<number | null>(null);
+  const mouseHoldTimeout = useRef<NodeJS.Timeout | null>(null);
   
   const counts: Record<string, number> = {
     all: aircraft.length + airports.length,
@@ -56,6 +59,39 @@ export function ModeBar({ onModeChange }: ModeBarProps) {
     setActiveMode(mode);
     onModeChange?.(mode);
   }, [setActiveMode, onModeChange]);
+  
+  // Long-click handling for mode bar
+  const handleMouseDown = useCallback(() => {
+    mousePressTime.current = Date.now();
+    
+    // Set timeout for long hold
+    mouseHoldTimeout.current = setTimeout(() => {
+      const current = useRadarStore.getState().gameState.activeMode;
+      setHighlightedIndex(modes.indexOf(current));
+      setMenuOpen(true);
+    }, HOLD_THRESHOLD);
+  }, [modes]);
+  
+  const handleMouseUp = useCallback(() => {
+    // Clear hold timeout
+    if (mouseHoldTimeout.current) {
+      clearTimeout(mouseHoldTimeout.current);
+      mouseHoldTimeout.current = null;
+    }
+    
+    // If menu is open, keep it open (user can click to select)
+    // Quick clicks on individual mode buttons are handled separately
+    mousePressTime.current = null;
+  }, []);
+  
+  const handleMouseLeave = useCallback(() => {
+    // Cancel hold if mouse leaves before threshold
+    if (mouseHoldTimeout.current) {
+      clearTimeout(mouseHoldTimeout.current);
+      mouseHoldTimeout.current = null;
+    }
+    mousePressTime.current = null;
+  }, []);
   
   // Tab key handling: single click to cycle, long hold for menu
   useEffect(() => {
@@ -147,8 +183,31 @@ export function ModeBar({ onModeChange }: ModeBarProps) {
       window.removeEventListener('keydown', handleKeyDown, true);
       window.removeEventListener('keyup', handleKeyUp, true);
       if (holdTimeout.current) clearTimeout(holdTimeout.current);
+      if (mouseHoldTimeout.current) clearTimeout(mouseHoldTimeout.current);
     };
   }, [modes, menuOpen, highlightedIndex, selectMode]);
+  
+  // Click outside to close menu
+  useEffect(() => {
+    if (!menuOpen) return;
+    
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('.mode-bar-container')) {
+        setMenuOpen(false);
+      }
+    };
+    
+    // Delay adding listener to avoid immediate close
+    const timeout = setTimeout(() => {
+      window.addEventListener('click', handleClickOutside);
+    }, 10);
+    
+    return () => {
+      clearTimeout(timeout);
+      window.removeEventListener('click', handleClickOutside);
+    };
+  }, [menuOpen]);
   
   const getIcon = (mode: EntityType | 'all', active: boolean, highlighted?: boolean) => {
     switch (mode) {
@@ -171,7 +230,7 @@ export function ModeBar({ onModeChange }: ModeBarProps) {
   };
   
   return (
-    <div className="relative flex items-center gap-1 text-[10px]">
+    <div className="mode-bar-container relative flex items-center gap-1 text-[10px]">
       {/* Menu popup - animates up from bottom */}
       <div 
         className={`absolute bottom-full left-0 mb-2 bg-black/95 border border-[#333] overflow-hidden transition-all duration-200 ease-out ${
@@ -206,7 +265,7 @@ export function ModeBar({ onModeChange }: ModeBarProps) {
           );
         })}
         <div className="px-2 py-1 border-t border-[#333] text-[#444] text-center">
-          release to confirm
+          click to select
         </div>
       </div>
       
@@ -215,9 +274,12 @@ export function ModeBar({ onModeChange }: ModeBarProps) {
       
       {/* Current mode indicator */}
       <div 
-        className={`flex items-center gap-1 bg-black/80 border px-2 py-1 transition-all duration-200 ${
+        className={`flex items-center gap-1 bg-black/80 border px-2 py-1 transition-all duration-200 cursor-pointer select-none ${
           menuOpen ? 'border-yellow-400/50' : 'border-[#222]'
         }`}
+        onMouseDown={handleMouseDown}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseLeave}
       >
         {modes.map((mode) => {
           const isActive = activeMode === mode;

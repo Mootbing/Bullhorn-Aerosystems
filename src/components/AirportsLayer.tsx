@@ -4,9 +4,10 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree, ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useRadarStore, Airport } from '@/store/gameStore';
+import { GLOBE, AIRPORTS, COLORS } from '@/config/constants';
 
 function latLonToVector3(lat: number, lon: number): THREE.Vector3 {
-  const r = 1.001; // Slightly above globe surface
+  const r = GLOBE.AIRPORT_SURFACE_OFFSET;
   const phi = (90 - lat) * (Math.PI / 180);
   const theta = (lon + 180) * (Math.PI / 180);
   return new THREE.Vector3(
@@ -58,9 +59,9 @@ function LargeAirportsInstanced({ airports }: { airports: Airport[] }) {
     
     for (let i = 0; i < airports.length; i++) {
       if (i === hoveredIdx) {
-        color.set('#00ff88'); // Green when hovered
+        color.set(COLORS.AIRPORT_HOVERED);
       } else {
-        color.set('#ffffff'); // White normally
+        color.set(COLORS.AIRPORT_DEFAULT);
       }
       meshRef.current.setColorAt(i, color);
     }
@@ -99,7 +100,7 @@ function LargeAirportsInstanced({ airports }: { airports: Airport[] }) {
       onPointerOut={handlePointerOut}
       onClick={handleClick}
     >
-      <planeGeometry args={[0.0025, 0.0025]} />
+      <planeGeometry args={[AIRPORTS.LARGE_AIRPORT_SIZE, AIRPORTS.LARGE_AIRPORT_SIZE]} />
       <meshBasicMaterial 
         color="#ffffff" 
         transparent 
@@ -153,9 +154,9 @@ function SmallAirportsInstanced({ airports }: { airports: Airport[] }) {
     
     for (let i = 0; i < airports.length; i++) {
       if (i === hoveredIdx) {
-        color.set('#00ff88');
+        color.set(COLORS.AIRPORT_HOVERED);
       } else {
-        color.set('#ffffff');
+        color.set(COLORS.AIRPORT_DEFAULT);
       }
       meshRef.current.setColorAt(i, color);
     }
@@ -168,11 +169,11 @@ function SmallAirportsInstanced({ airports }: { airports: Airport[] }) {
     if (!meshRef.current) return;
     
     const cameraDistance = camera.position.length();
-    // Only show when very zoomed in (distance < 1.5)
-    const opacity = Math.max(0, Math.min(1, (1.5 - cameraDistance) * 3));
+    // Only show when very zoomed in
+    const opacity = Math.max(0, Math.min(1, (AIRPORTS.SMALL_AIRPORT_FADE_DISTANCE - cameraDistance) * AIRPORTS.SMALL_AIRPORT_FADE_SPEED));
     
     const material = meshRef.current.material as THREE.MeshBasicMaterial;
-    material.opacity = opacity * 0.5;
+    material.opacity = opacity * AIRPORTS.SMALL_AIRPORT_MAX_OPACITY;
     meshRef.current.visible = opacity > 0.01;
   });
   
@@ -207,7 +208,7 @@ function SmallAirportsInstanced({ airports }: { airports: Airport[] }) {
       onClick={handleClick}
     >
       {/* Simple square geometry - minimal triangles for performance */}
-      <planeGeometry args={[0.0012, 0.0012]} />
+      <planeGeometry args={[AIRPORTS.SMALL_AIRPORT_SIZE, AIRPORTS.SMALL_AIRPORT_SIZE]} />
       <meshBasicMaterial 
         color="#ffffff" 
         transparent 

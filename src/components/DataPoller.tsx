@@ -2,6 +2,7 @@
 
 import { useEffect, useCallback, useRef } from 'react';
 import { useRadarStore, ViewportBounds, Aircraft } from '@/store/gameStore';
+import { POLLING } from '@/config/constants';
 
 function generateMockData(bounds: ViewportBounds | null, count: number = 50) {
   const countries = ['United States', 'China', 'Germany', 'United Kingdom', 'France', 'Japan', 'Australia', 'Canada', 'Brazil', 'India'];
@@ -283,8 +284,8 @@ export function DataPoller() {
     if (!isPolling || !locationReady || !viewportBounds) return;
     
     // Increase interval based on consecutive errors (exponential backoff)
-    const baseInterval = 15000; // 15 seconds base
-    const backoffMultiplier = Math.min(Math.pow(2, consecutiveErrors.current), 8); // Max 8x = 2 minutes
+    const baseInterval = POLLING.BASE_INTERVAL;
+    const backoffMultiplier = Math.min(Math.pow(2, consecutiveErrors.current), POLLING.MAX_BACKOFF_MULTIPLIER);
     const interval = baseInterval * backoffMultiplier;
     
     console.log(`[DataPoller] Polling every ${interval / 1000}s (errors: ${consecutiveErrors.current})`);
